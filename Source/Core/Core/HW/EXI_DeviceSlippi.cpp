@@ -14,6 +14,7 @@
 #include <string>
 #include <tuple>
 #include <unordered_map>
+#include <arpa/inet.h>
 
 #ifdef _WIN32
 #include <share.h>
@@ -127,6 +128,10 @@ CEXISlippi::CEXISlippi()
 	// Loggers will check 5 bytes, make sure we own that memory
 	m_read_queue.reserve(5);
 
+	// Spawn thread for socket listener
+	m_stop_socket_thread = false;
+	m_socketThread = std::thread(&CEXISlippi::SlippicomSocketThread, this);
+
 	// Spawn thread for savestates
 	// maybe stick this into functions below so it doesn't always get spawned
 	// only spin off and join when a replay is loaded, delete after replay is done, etc
@@ -142,6 +147,7 @@ CEXISlippi::~CEXISlippi()
 	writeToFile(&empty[0], 0, "close");
 	resetPlayback();
 
+	shutdownSocketThread();
 
 	//g_playback_status = SlippiPlaybackStatus::SlippiPlaybackStatus();
 }
@@ -279,6 +285,9 @@ std::vector<u8> CEXISlippi::generateMetadata()
 
 void CEXISlippi::writeToFile(u8 *payload, u32 length, std::string fileOption)
 {
+	// Write this data to network
+	writeToSockets(payload, length, fileOption);
+
 	std::vector<u8> dataToWrite;
 	if (fileOption == "create")
 	{
@@ -1580,4 +1589,163 @@ void CEXISlippi::clearWatchSettingsStartEnd()
 		replayComm->current.startFrame = Slippi::GAME_FIRST_FRAME;
 		replayComm->current.endFrame = INT_MAX;
 	}
+}
+
+void CEXISlippi::SlippicomSocketThread(void)
+{
+	int server_fd, new_socket;
+	struct sockaddr_in address;
+	int opt = 1;
+	int addrlen = sizeof(address);
+
+	// Creating socket file descriptor
+	if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0)
+	{
+		  WARN_LOG(SLIPPI, "Failed to create Slippi streaming socket");
+			return;
+	}
+
+	if (setsockopt(server_fd,
+								 SOL_SOCKET,
+								 SO_REUSEADDR | SO_REUSEPORT,
+								 &opt,
+								 sizeof(opt)))
+	{
+		WARN_LOG(SLIPPI, "Failed configuring Slippi streaming socket");
+		return;
+	}
+	address.sin_family = AF_INET;
+	address.sin_addr.s_addr = INADDR_ANY;
+	address.sin_port = htons(51441);
+
+	if (bind(server_fd,
+					 (struct sockaddr *)&address,
+					 sizeof(address))<0)
+	{
+		WARN_LOG(SLIPPI, "Failed binding to Slippi streaming port");
+		return;
+	}
+	if (listen(server_fd, 3) < 0)
+	{
+		WARN_LOG(SLIPPI, "Failed listening to Slippi streaming socket");
+		return;
+	}
+
+	// Infinite loop, keep accepting new connections and putting them into the list
+	while(1)
+	{
+		// If we're told to stop, then quit
+		if(m_stop_socket_thread)
+		{
+			return;
+		}
+
+		if ((new_socket = accept(server_fd,
+														 (struct sockaddr *)&address,
+											 		 	 (socklen_t*)&addrlen))<0)
+		{
+			WARN_LOG(SLIPPI, "Failed listening to Slippi streaming socket");
+			return;
+		}
+
+		// When we get a new socket, send the event buffer over
+		m_event_buffer_mutex.lock();
+		for(uint32_t i=0; i < m_event_buffer.size(); i++)
+		{
+			int32_t byteswritten = 0;
+			while((uint32_t)byteswritten < m_event_buffer[i].size())
+			{
+				byteswritten = write(new_socket, m_event_buffer[i].data() + byteswritten,
+					m_event_buffer[i].size());
+			}
+		}
+		m_event_buffer_mutex.unlock();
+
+		m_socket_mutex.lock();
+		m_sockets.push_back(new_socket);
+		m_socket_mutex.unlock();
+	}
+}
+
+void CEXISlippi::writeToSockets(u8 *payload, u32 length, std::string fileOption)
+{
+	std::vector<u8> ubjson_header({'{', 'i', '\x04', 't', 'y', 'p', 'e', 'U',
+		'\x02', 'i', '\x07', 'p', 'a', 'y', 'l', 'o', 'a', 'd', '{', 'i', '\x04',
+		'd', 'a', 't', 'a', '[', '$', 'U', '#', 'I'});
+	std::vector<u8> length_vector = uint16ToVector(length);
+	std::vector<u8> ubjson_footer({'}', '}'});
+
+	// Length of the entire TCP event. Not part of the slippi message per-se
+	std::vector<u8> event_length_vector = uint32ToVector(length +
+			ubjson_header.size() + length_vector.size() + ubjson_footer.size());
+
+	// Let's assemble the final buffer that gets written
+	std::vector<u8> buffer;
+	buffer.reserve(4 + length + ubjson_header.size() + length_vector.size() +
+		ubjson_footer.size());
+	buffer.insert(buffer.end(), event_length_vector.begin(), event_length_vector.end());
+	buffer.insert(buffer.end(), ubjson_header.begin(), ubjson_header.end());
+	buffer.insert(buffer.end(), length_vector.begin(), length_vector.end());
+	buffer.insert(buffer.end(), payload, payload + length);
+	buffer.insert(buffer.end(), ubjson_footer.begin(), ubjson_footer.end());
+
+	if (fileOption == "close")
+	{
+		m_event_buffer_mutex.lock();
+		m_event_buffer.clear();
+		m_event_buffer_mutex.unlock();
+	}
+	else
+	{
+		// Put this message into the event buffer
+		//	This is for future connections that come in and need the history
+		m_event_buffer_mutex.lock();
+		m_event_buffer.push_back(buffer);
+		m_event_buffer_mutex.unlock();
+	}
+
+	// Write the data to each open socket
+	m_socket_mutex.lock();
+	for(uint32_t i=0; i < m_sockets.size(); i++)
+	{
+		int32_t byteswritten = 0;
+		while((uint32_t)byteswritten < buffer.size())
+		{
+			byteswritten = write(m_sockets[i], buffer.data() + byteswritten, buffer.size());
+		}
+	}
+	m_socket_mutex.unlock();
+}
+
+void CEXISlippi::shutdownSocketThread(void)
+{
+	// The socket thread will be blocked waiting for input
+	//	So to wake it up, let's connect to the socket!
+	m_stop_socket_thread = true;
+
+	int sock = 0;
+	struct sockaddr_in serv_addr;
+	if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+	{
+			WARN_LOG(SLIPPI, "Failed to shut down Slippi networking thread");
+			return;
+	}
+
+	serv_addr.sin_family = AF_INET;
+	serv_addr.sin_port = htons(51441);
+
+	// Convert IPv4 and IPv6 addresses from text to binary form
+	if(inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr)<=0)
+	{
+			WARN_LOG(SLIPPI, "Failed to shut down Slippi networking thread");
+			return;
+	}
+
+	if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
+	{
+			WARN_LOG(SLIPPI, "Failed to shut down Slippi networking thread");
+			return;
+	}
+
+	m_socketThread.join();
 }

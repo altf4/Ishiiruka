@@ -30,6 +30,7 @@ class CEXISlippi : public IEXIDevice
 	void DMARead(u32 addr, u32 size) override;
 
 	bool IsPresent() const override;
+  std::thread m_socketThread;
 	std::thread m_savestateThread;
 	std::thread m_seekThread;
 
@@ -98,6 +99,11 @@ class CEXISlippi : public IEXIDevice
 
 	File::IOFile m_file;
 	std::vector<u8> m_payload;
+  std::mutex m_socket_mutex;
+  std::vector<int> m_sockets;
+  bool m_stop_socket_thread;
+  std::vector< std::vector<u8> > m_event_buffer;
+  std::mutex m_event_buffer_mutex;
 
 	// replay playback stuff
 	void prepareGameInfo();
@@ -110,11 +116,11 @@ class CEXISlippi : public IEXIDevice
 	void prepareIsFileReady();
 	void processInitialState(std::vector<u8> &iState);
 	void resetPlayback();
-	void clearWatchSettingsStartEnd(); 
+	void clearWatchSettingsStartEnd();
 
 	void SavestateThread(void);
 	void SeekThread(void);
-	
+
 	std::unordered_map<int32_t, std::shared_future<std::string>> futureDiffs; // State diffs keyed by frameIndex, processed async
 	std::vector<u8> iState;                                            // The initial state
 	std::vector<u8> cState;                                            // The current (latest) state
@@ -137,4 +143,7 @@ class CEXISlippi : public IEXIDevice
 
   protected:
 	void TransferByte(u8 &byte) override;
+  void SlippicomSocketThread(void);
+  void shutdownSocketThread(void);
+  void writeToSockets(u8 *payload, u32 length, std::string fileOption);
 };
