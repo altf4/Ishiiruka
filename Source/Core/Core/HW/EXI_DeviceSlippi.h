@@ -19,6 +19,13 @@
 #include "Core/HW/EXI_Device.h"
 #include "Core/Slippi/SlippiReplayComm.h"
 
+// Sockets in windows are unsigned
+#ifdef _WIN32
+typedef unsigned int SOCKET;
+#else
+typedef int SOCKET;
+#endif
+
 // Acts
 class CEXISlippi : public IEXIDevice
 {
@@ -100,7 +107,7 @@ class CEXISlippi : public IEXIDevice
 	File::IOFile m_file;
 	std::vector<u8> m_payload;
   std::mutex m_socket_mutex;
-  std::vector<int> m_sockets;
+  std::vector<SOCKET> m_sockets;
   bool m_stop_socket_thread;
   std::vector< std::vector<u8> > m_event_buffer;
   std::mutex m_event_buffer_mutex;

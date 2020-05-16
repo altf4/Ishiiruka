@@ -14,10 +14,14 @@
 #include <string>
 #include <tuple>
 #include <unordered_map>
-#include <arpa/inet.h>
 
+// Networking
 #ifdef _WIN32
 #include <share.h>
+#include <winsock2.h>
+#include <Ws2tcpip.h>
+#else
+#include <arpa/inet.h>
 #endif
 
 #include "Common/CommonFuncs.h"
@@ -117,9 +121,30 @@ std::string processDiff(std::vector<u8> iState, std::vector<u8> cState)
 	return diff;
 }
 
+// Helper for closing sockets in a cross-compatible way
+int sockClose(SOCKET sock)
+{
+  int status = 0;
+
+  #ifdef _WIN32
+    status = shutdown(sock, SD_BOTH);
+    if (status == 0) { status = closesocket(sock); }
+  #else
+    status = shutdown(sock, SHUT_RDWR);
+    if (status == 0) { status = close(sock); }
+  #endif
+
+  return status;
+}
+
 CEXISlippi::CEXISlippi()
 {
 	INFO_LOG(SLIPPI, "EXI SLIPPI Constructor called.");
+
+	#ifdef _WIN32
+	WSADATA wsa_data;
+	return WSAStartup(MAKEWORD(2,2), &wsa_data);
+	#endif
 
 	g_playback_status = std::make_unique<SlippiPlaybackStatus>();
 
@@ -148,6 +173,10 @@ CEXISlippi::~CEXISlippi()
 	resetPlayback();
 
 	shutdownSocketThread();
+
+	#ifdef _WIN32
+	return WSACleanup();
+	#endif
 
 	//g_playback_status = SlippiPlaybackStatus::SlippiPlaybackStatus();
 }
@@ -1593,7 +1622,7 @@ void CEXISlippi::clearWatchSettingsStartEnd()
 
 void CEXISlippi::SlippicomSocketThread(void)
 {
-	int server_fd, new_socket;
+	SOCKET server_fd, new_socket;
 	struct sockaddr_in address;
 	int opt = 1;
 	int addrlen = sizeof(address);
@@ -1640,9 +1669,9 @@ void CEXISlippi::SlippicomSocketThread(void)
 			m_socket_mutex.lock();
 			for(uint32_t i=0; i < m_sockets.size(); i++)
 			{
-				close(m_sockets[i]);
+				sockClose(m_sockets[i]);
 			}
-			close(server_fd);
+			sockClose(server_fd);
 			m_socket_mutex.unlock();
 			return;
 		}
@@ -1730,7 +1759,7 @@ void CEXISlippi::shutdownSocketThread(void)
 	//	So to wake it up, let's connect to the socket!
 	m_stop_socket_thread = true;
 
-	int sock = 0;
+	SOCKET sock = 0;
 	struct sockaddr_in serv_addr;
 	if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
 	{

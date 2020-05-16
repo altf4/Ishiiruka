@@ -342,6 +342,7 @@ if(WIN32)
 	add_definitions(-D_SECURE_SCL=0)
 	add_definitions(-D_CRT_SECURE_NO_WARNINGS)
 	add_definitions(-D_CRT_SECURE_NO_DEPRECATE)
+	find_library(WINSOCK2_LIBRARY NAMES ws2_32 WS2_32 Ws2_32)
 endif(WIN32)
 
 # Add an option to build relocatable binaries on Linux
