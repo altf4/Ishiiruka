@@ -1637,6 +1637,13 @@ void CEXISlippi::SlippicomSocketThread(void)
 		// If we're told to stop, then quit
 		if(m_stop_socket_thread)
 		{
+			m_socket_mutex.lock();
+			for(uint32_t i=0; i < m_sockets.size(); i++)
+			{
+				close(m_sockets[i]);
+			}
+			close(server_fd);
+			m_socket_mutex.unlock();
 			return;
 		}
 
