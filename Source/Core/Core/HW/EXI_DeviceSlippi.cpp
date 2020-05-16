@@ -18,8 +18,6 @@
 // Networking
 #ifdef _WIN32
 #include <share.h>
-#include <winsock2.h>
-#include <Ws2tcpip.h>
 #else
 #include <arpa/inet.h>
 #endif
@@ -170,6 +168,7 @@ CEXISlippi::~CEXISlippi()
 	// suddenly stops. This would happen often on netplay when the opponent
 	// would close the emulation before the file successfully finished writing
 	writeToFile(&empty[0], 0, "close");
+	writeToSockets(&empty[0], 0, "close");
 	resetPlayback();
 
 	shutdownSocketThread();
@@ -314,9 +313,6 @@ std::vector<u8> CEXISlippi::generateMetadata()
 
 void CEXISlippi::writeToFile(u8 *payload, u32 length, std::string fileOption)
 {
-	// Write this data to network
-	writeToSockets(payload, length, fileOption);
-
 	std::vector<u8> dataToWrite;
 	if (fileOption == "create")
 	{
@@ -1353,6 +1349,7 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
 		u8 receiveCommandsLen = memPtr[1];
 		configureCommands(&memPtr[1], receiveCommandsLen);
 		writeToFile(&memPtr[0], receiveCommandsLen + 1, "create");
+		writeToSockets(&memPtr[0], receiveCommandsLen + 1, "create");
 		bufLoc += receiveCommandsLen + 1;
 	}
 
@@ -1374,6 +1371,7 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
 		{
 		case CMD_RECEIVE_GAME_END:
 			writeToFile(&memPtr[bufLoc], payloadLen + 1, "close");
+			writeToSockets(&memPtr[bufLoc], payloadLen + 1, "close");
 			break;
 		case CMD_PREPARE_REPLAY:
 			// log.open("log.txt");
@@ -1397,6 +1395,7 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
 			break;
 		default:
 			writeToFile(&memPtr[bufLoc], payloadLen + 1, "");
+			writeToSockets(&memPtr[bufLoc], payloadLen + 1, "");
 			break;
 		}
 
@@ -1636,8 +1635,8 @@ void CEXISlippi::SlippicomSocketThread(void)
 
 	if (setsockopt(server_fd,
 								 SOL_SOCKET,
-								 SO_REUSEADDR | SO_REUSEPORT,
-								 &opt,
+								 SO_REUSEADDR,
+								 (char*)&opt,
 								 sizeof(opt)))
 	{
 		WARN_LOG(SLIPPI, "Failed configuring Slippi streaming socket");
@@ -1691,8 +1690,8 @@ void CEXISlippi::SlippicomSocketThread(void)
 			int32_t byteswritten = 0;
 			while((uint32_t)byteswritten < m_event_buffer[i].size())
 			{
-				byteswritten = write(new_socket, m_event_buffer[i].data() + byteswritten,
-					m_event_buffer[i].size());
+				byteswritten = send(new_socket, (char*)m_event_buffer[i].data() + byteswritten,
+					(int)m_event_buffer[i].size(), 0);
 			}
 		}
 		m_event_buffer_mutex.unlock();
@@ -1747,7 +1746,7 @@ void CEXISlippi::writeToSockets(u8 *payload, u32 length, std::string fileOption)
 		int32_t byteswritten = 0;
 		while((uint32_t)byteswritten < buffer.size())
 		{
-			byteswritten = write(m_sockets[i], buffer.data() + byteswritten, buffer.size());
+			byteswritten = send(m_sockets[i], (char*)buffer.data() + byteswritten, (int)buffer.size(), 0);
 		}
 	}
 	m_socket_mutex.unlock();

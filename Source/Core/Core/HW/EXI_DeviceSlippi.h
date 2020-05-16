@@ -21,7 +21,7 @@
 
 // Sockets in windows are unsigned
 #ifdef _WIN32
-typedef unsigned int SOCKET;
+#include <winsock2.h>
 #else
 typedef int SOCKET;
 #endif
