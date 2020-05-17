@@ -127,8 +127,7 @@ int sockClose(SOCKET sock)
   #ifdef _WIN32
     status = closesocket(sock);
   #else
-    status = shutdown(sock, SHUT_RDWR);
-    if (status == 0) { status = close(sock); }
+     status = close(sock);
   #endif
 
   return status;
