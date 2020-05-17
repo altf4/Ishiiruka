@@ -141,7 +141,7 @@ CEXISlippi::CEXISlippi()
 
 	#ifdef _WIN32
 	WSADATA wsa_data;
-	return WSAStartup(MAKEWORD(2,2), &wsa_data);
+	WSAStartup(MAKEWORD(2,2), &wsa_data);
 	#endif
 
 	g_playback_status = std::make_unique<SlippiPlaybackStatus>();
@@ -174,7 +174,7 @@ CEXISlippi::~CEXISlippi()
 	shutdownSocketThread();
 
 	#ifdef _WIN32
-	return WSACleanup();
+	WSACleanup();
 	#endif
 
 	//g_playback_status = SlippiPlaybackStatus::SlippiPlaybackStatus();
@@ -1712,7 +1712,7 @@ void CEXISlippi::writeToSockets(u8 *payload, u32 length, std::string fileOption)
 
 	// Length of the entire TCP event. Not part of the slippi message per-se
 	std::vector<u8> event_length_vector = uint32ToVector(length +
-			ubjson_header.size() + length_vector.size() + ubjson_footer.size());
+			(u32)ubjson_header.size() + (u32)length_vector.size() + (u32)ubjson_footer.size());
 
 	// Let's assemble the final buffer that gets written
 	std::vector<u8> buffer;
