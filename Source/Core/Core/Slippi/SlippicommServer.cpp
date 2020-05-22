@@ -1,8 +1,7 @@
-#include <sys/time.h>
-
 #include "SlippicommServer.h"
 #include "Common/Logging/Log.h"
 #include "nlohmann/json.hpp"
+#include "Common/CommonTypes.h"
 
 // Networking
 #ifdef _WIN32
@@ -26,7 +25,7 @@ void SlippicommServer::write(u8 *payload, u32 length)
   m_write_time_mutex.unlock();
 
   m_event_buffer_mutex.lock();
-  u32 cursor = m_event_buffer.size() + 1;
+  u32 cursor = (u32)m_event_buffer.size() + 1;
   m_event_buffer_mutex.unlock();
 
   // Note: This is a bit messy because nlohmann can't be used for this case.
@@ -96,7 +95,7 @@ int SlippicommServer::sockClose(SOCKET sock)
   int status = 0;
 
   #ifdef _WIN32
-    status = closesocket(sock);
+    status = shutdown(sock, SD_BOTH);
   #else
      status = close(sock);
   #endif
@@ -201,7 +200,7 @@ void SlippicommServer::writeKeepalives()
 {
   nlohmann::json keepalive = {{"type", KEEPALIVE_TYPE}};
   std::vector<u8> ubjson_keepalive = nlohmann::json::to_ubjson(keepalive);
-  u32 keepalive_len = htonl(ubjson_keepalive.size());
+  u32 keepalive_len = htonl((u32)ubjson_keepalive.size());
 
   // Write the data to each open socket
   m_socket_mutex.lock();
@@ -209,7 +208,7 @@ void SlippicommServer::writeKeepalives()
   while(it != m_sockets.end())
   {
     // TODO technically this should be in a loop, will do later
-    send(it->first, &keepalive_len, sizeof(keepalive_len), 0);
+    send(it->first, (char*)&keepalive_len, sizeof(keepalive_len), 0);
 
     int32_t byteswritten = 0;
     while((uint32_t)byteswritten < ubjson_keepalive.size())
@@ -246,10 +245,10 @@ void SlippicommServer::writeBroadcast()
   //  Broadcasts to 255.255.255.255 won't send to localhost on most systems
   //  so we go out of our way to "broadcast" to localhost in addition
   //  just so that autodiscovery works locally too
-  sendto(m_broadcast_socket, &broadcast, sizeof(broadcast), 0, (struct sockaddr *)
-    &m_broadcastAddr, sizeof(m_broadcastAddr));
-  sendto(m_broadcast_socket, &broadcast, sizeof(broadcast), 0, (struct sockaddr *)
-    &m_localhostAddr, sizeof(m_localhostAddr));
+  sendto(m_broadcast_socket, (char*)&broadcast, sizeof(broadcast), 0,
+    (struct sockaddr *)&m_broadcastAddr, sizeof(m_broadcastAddr));
+  sendto(m_broadcast_socket, (char*)&broadcast, sizeof(broadcast), 0,
+    (struct sockaddr *)&m_localhostAddr, sizeof(m_localhostAddr));
 
   std::cout << "Broadcast" << std::endl;
 }
@@ -368,9 +367,9 @@ void SlippicommServer::handleMessage(SOCKET socket)
   };
 
   std::vector<u8> ubjson_handshake_back = nlohmann::json::to_ubjson(handshake_back);
-  u32 handshake_back_len = htonl(ubjson_handshake_back.size());
+  u32 handshake_back_len = htonl((u32)ubjson_handshake_back.size());
   // TODO technically this should be in a loop, will do later
-  send(socket, &handshake_back_len, sizeof(handshake_back_len), 0);
+  send(socket, (char*)&handshake_back_len, sizeof(handshake_back_len), 0);
 
   int32_t byteswritten = 0;
   while((uint32_t)byteswritten < ubjson_handshake_back.size())
@@ -436,7 +435,7 @@ void SlippicommServer::SlippicommSocketThread(void)
   m_broadcast_socket = socket(AF_INET, SOCK_DGRAM, 0);
   int broadcastEnable=1;
   if(setsockopt(m_broadcast_socket, SOL_SOCKET, SO_BROADCAST,
-    &broadcastEnable, sizeof(broadcastEnable)))
+    (char*)&broadcastEnable, sizeof(broadcastEnable)))
   {
 		WARN_LOG(SLIPPI, "Failed configuring Slippi braodcast socket");
 		return;
@@ -479,7 +478,7 @@ void SlippicommServer::SlippicommSocketThread(void)
     timeval timeout;
     timeout.tv_sec = 1;
     timeout.tv_usec = 0;
-    numActiveSockets = select(maxFD+1, &read_fds, NULL, NULL, &timeout);
+    numActiveSockets = select((int)maxFD+1, &read_fds, NULL, NULL, &timeout);
 
     if(numActiveSockets < 0)
     {

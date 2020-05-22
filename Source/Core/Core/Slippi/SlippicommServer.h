@@ -2,6 +2,8 @@
 
 #include <map>
 #include <chrono>
+#include <thread>
+#include <mutex>
 
 // Sockets in windows are unsigned
 #ifdef _WIN32
@@ -50,7 +52,7 @@ public:
     	char	cmd[10];
     	u8		mac_addr[6];	// Wi-Fi interface MAC address
     	char	nickname[32];	// Console nickname
-    } __attribute__((packed));
+    };
 
   private:
     std::mutex m_socket_mutex;
