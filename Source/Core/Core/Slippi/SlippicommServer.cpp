@@ -8,8 +8,6 @@
 #ifdef _WIN32
 #include <share.h>
 #include <ws2tcpip.h>
-#else
-#include <arpa/inet.h>
 #endif
 
 SlippicommServer* SlippicommServer::getInstance()
@@ -27,24 +25,38 @@ void SlippicommServer::write(u8 *payload, u32 length)
   m_last_write_time = std::chrono::system_clock::now();
   m_write_time_mutex.unlock();
 
-  // TODO put current cursor value in here
+  m_event_buffer_mutex.lock();
+  u32 cursor = m_event_buffer.size() + 1;
+  m_event_buffer_mutex.unlock();
+
+  // Note: This is a bit messy because nlohmann can't be used for this case.
+  //  nlohmann needs the contents to be valid JSON first, and then it can
+  //  read and write it to UBJSON. But arbitrary binary buffers can't be in
+  //  regular JSON, so this doesn't work. :(
   std::vector<u8> ubjson_header({'{', 'i', '\x04', 't', 'y', 'p', 'e', 'U',
-		'\x02', 'i', '\x07', 'p', 'a', 'y', 'l', 'o', 'a', 'd', '{', 'i', '\x04',
-		'd', 'a', 't', 'a', '[', '$', 'U', '#', 'I'});
+		'\x02', 'i', '\x07', 'p', 'a', 'y', 'l', 'o', 'a', 'd', '{',});
+  std::vector<u8> cursor_header({'i', '\x06', 'c', 'u', 'r', 's', 'o', 'r', 'l'});
+  std::vector<u8> cursor_value = uint32ToVector(cursor);
+  std::vector<u8> data_field_header({'i', '\x04', 'd', 'a', 't', 'a', '[',
+    '$', 'U', '#', 'I'});
 	std::vector<u8> length_vector = uint16ToVector(length);
 	std::vector<u8> ubjson_footer({'}', '}'});
 
 	// Length of the entire TCP event. Not part of the slippi message per-se
-	std::vector<u8> event_length_vector = uint32ToVector(length +
-			(u32)ubjson_header.size() + (u32)length_vector.size() +
-      (u32)ubjson_footer.size());
+  u32 event_length = length +
+			(u32)ubjson_header.size() + (u32)cursor_header.size() +
+      (u32)cursor_value.size() + (u32)data_field_header.size() +
+      (u32)length_vector.size() + (u32)ubjson_footer.size();
+	std::vector<u8> event_length_vector = uint32ToVector(event_length);
 
 	// Let's assemble the final buffer that gets written
 	std::vector<u8> buffer;
-	buffer.reserve(4 + length + ubjson_header.size() + length_vector.size() +
-		ubjson_footer.size());
+	buffer.reserve(event_length);
 	buffer.insert(buffer.end(), event_length_vector.begin(), event_length_vector.end());
 	buffer.insert(buffer.end(), ubjson_header.begin(), ubjson_header.end());
+  buffer.insert(buffer.end(), cursor_header.begin(), cursor_header.end());
+  buffer.insert(buffer.end(), cursor_value.begin(), cursor_value.end());
+  buffer.insert(buffer.end(), data_field_header.begin(), data_field_header.end());
 	buffer.insert(buffer.end(), length_vector.begin(), length_vector.end());
 	buffer.insert(buffer.end(), payload, payload + length);
 	buffer.insert(buffer.end(), ubjson_footer.begin(), ubjson_footer.end());
@@ -219,7 +231,27 @@ void SlippicommServer::writeKeepalives()
 
 void SlippicommServer::writeBroadcast()
 {
-  // TODO broadast send(m_broadcast_socket, ...
+    // Broadcast message structure
+  struct broadcast_msg broadcast;
+
+  //TODO COnfigureable string
+  char nickname[] = "Dolphin";
+  char cmd[] = "SLIPREADY";
+
+  strncpy(broadcast.cmd, cmd, sizeof(broadcast.cmd));
+  memset(broadcast.mac_addr, 0, sizeof(broadcast.mac_addr));
+  strncpy(broadcast.nickname, nickname, sizeof(broadcast.nickname));
+
+  // So this sends twice due to some networking weirdness
+  //  Broadcasts to 255.255.255.255 won't send to localhost on most systems
+  //  so we go out of our way to "broadcast" to localhost in addition
+  //  just so that autodiscovery works locally too
+  sendto(m_broadcast_socket, &broadcast, sizeof(broadcast), 0, (struct sockaddr *)
+    &m_broadcastAddr, sizeof(m_broadcastAddr));
+  sendto(m_broadcast_socket, &broadcast, sizeof(broadcast), 0, (struct sockaddr *)
+    &m_localhostAddr, sizeof(m_localhostAddr));
+
+  std::cout << "Broadcast" << std::endl;
 }
 
 void SlippicommServer::handleMessage(SOCKET socket)
@@ -409,6 +441,16 @@ void SlippicommServer::SlippicommSocketThread(void)
 		WARN_LOG(SLIPPI, "Failed configuring Slippi braodcast socket");
 		return;
   }
+
+  // Setup some more broadcast port variables
+  memset(&m_broadcastAddr, 0, sizeof(m_broadcastAddr));
+  m_broadcastAddr.sin_family = AF_INET;
+  m_broadcastAddr.sin_addr.s_addr = inet_addr("255.255.255.255");
+  m_broadcastAddr.sin_port = htons(20582);
+  memset(&m_localhostAddr, 0, sizeof(m_localhostAddr));
+  m_localhostAddr.sin_family = AF_INET;
+  m_localhostAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+  m_localhostAddr.sin_port = htons(20582);
 
 	// Infinite loop, keep accepting new connections and putting them into the list
 	while(1)

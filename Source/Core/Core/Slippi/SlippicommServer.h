@@ -7,6 +7,7 @@
 #ifdef _WIN32
 #include <winsock2.h>
 #else
+#include <arpa/inet.h>
 #include <sys/select.h>
 typedef int SOCKET;
 #endif
@@ -44,6 +45,13 @@ public:
     SlippicommServer(SlippicommServer const&) = delete;
     void operator=(SlippicommServer const&)  = delete;
 
+    struct broadcast_msg
+    {
+    	char	cmd[10];
+    	u8		mac_addr[6];	// Wi-Fi interface MAC address
+    	char	nickname[32];	// Console nickname
+    } __attribute__((packed));
+
   private:
     std::mutex m_socket_mutex;
     std::map<SOCKET, std::shared_ptr<SlippiSocket>> m_sockets;
@@ -55,6 +63,7 @@ public:
     std::mutex m_write_time_mutex;
     std::chrono::system_clock::time_point m_last_write_time;
     SOCKET m_broadcast_socket;
+    struct sockaddr_in m_broadcastAddr, m_localhostAddr;
 
     // Private constructor to avoid making another instance
     SlippicommServer();
