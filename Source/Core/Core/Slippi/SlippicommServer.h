@@ -25,6 +25,7 @@ class SlippiSocket
 public:
   // Fragmented data that hasn't yet fully arrived
   std::vector<char> m_incoming_buffer;
+  u32 m_cursor = 0;
 };
 
 class SlippicommServer
@@ -55,7 +56,6 @@ public:
     };
 
   private:
-    std::mutex m_socket_mutex;
     std::map<SOCKET, std::shared_ptr<SlippiSocket>> m_sockets;
     bool m_stop_socket_thread;
     std::vector< std::vector<u8> > m_event_buffer;
@@ -77,13 +77,18 @@ public:
     int sockClose(SOCKET socket);
     // Build the set of file descriptors that select() needs
     //  Returns the highest socket value, which is required by select()
-    SOCKET buildFDSet(fd_set *read_fds);
+    SOCKET buildFDSet(fd_set *read_fds, fd_set *write_fds);
     // Handle an incoming message on a socket
     void handleMessage(SOCKET socket);
     // Send keepalive messages to all clients
     void writeKeepalives();
     // Send broadcast advertisement of the slippi server
     void writeBroadcast();
+    // Catch up given socket to the latest events
+    //  Does nothing if they're already caught up.
+    //  Quits out early if the call would block. So this isn't guaranteed to
+    //    actually send the data. Best-effort
+    void writeEvents(SOCKET socket);
 
     std::vector<u8> uint32ToVector(u32 num);
     std::vector<u8> uint16ToVector(u16 num);

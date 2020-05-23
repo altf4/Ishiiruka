@@ -7,6 +7,8 @@
 #ifdef _WIN32
 #include <share.h>
 #include <ws2tcpip.h>
+#else
+#include <errno.h>
 #endif
 
 SlippicommServer* SlippicommServer::getInstance()
@@ -61,32 +63,44 @@ void SlippicommServer::write(u8 *payload, u32 length)
 	buffer.insert(buffer.end(), ubjson_footer.begin(), ubjson_footer.end());
 
 	// Put this message into the event buffer
-	//	This is for future connections that come in and need the history
+	//	This will queue the message up to go out for all clients
 	m_event_buffer_mutex.lock();
 	m_event_buffer.push_back(buffer);
 	m_event_buffer_mutex.unlock();
+}
 
-	// Write the data to each open socket
-	m_socket_mutex.lock();
-  std::map<SOCKET, std::shared_ptr<SlippiSocket>>::iterator it = m_sockets.begin();
-  while(it != m_sockets.end())
+void SlippicommServer::writeEvents(SOCKET socket)
+{
+  // Get the cursor for this socket
+  u32 cursor = m_sockets[socket]->m_cursor;
+
+  // Loop through each event that needs to be sent
+  //  send all the events starting at their cursor
+  int32_t byteswritten = 0;
+  m_event_buffer_mutex.lock();
+  for(u32 i=cursor; i < m_event_buffer.size(); i++)
   {
-    int32_t byteswritten = 0;
-    while((uint32_t)byteswritten < buffer.size())
+    byteswritten = 0;
+    while((u32)byteswritten < m_event_buffer[i].size())
     {
-      byteswritten = send(it->first, (char*)buffer.data() +
-        byteswritten, (int)buffer.size()-byteswritten, 0);
-      // -1 means the socket is closed
+      byteswritten = send(socket, (char*)m_event_buffer[i].data() +
+        byteswritten, (int)m_event_buffer[i].size(), 0);
+      // -1 means an error has occurred
       if(byteswritten == -1)
       {
-        m_sockets.erase(it->first);
-        break;
+        // Is this just a blocking error?
+        if(errno != EWOULDBLOCK)
+        {
+          m_sockets.erase(socket);
+        }
+        m_event_buffer_mutex.unlock();
+        return;
       }
     }
-    it++;
+    // We successfully wrote the event. So increment the cursor
+    m_sockets[socket]->m_cursor++;
   }
-
-	m_socket_mutex.unlock();
+  m_event_buffer_mutex.unlock();
 }
 
 // Helper for closing sockets in a cross-compatible way
@@ -103,22 +117,38 @@ int SlippicommServer::sockClose(SOCKET sock)
   return status;
 }
 
-SOCKET SlippicommServer::buildFDSet(fd_set *read_fds)
+SOCKET SlippicommServer::buildFDSet(fd_set *read_fds, fd_set *write_fds)
 {
   // Keep track of the currently largest FD
   SOCKET maxFD = m_server_fd;
+  FD_ZERO(read_fds);
+  FD_ZERO(write_fds);
   FD_SET(m_server_fd, read_fds);
 
   // Read from the sockets list
-  m_socket_mutex.lock();
   std::map<SOCKET, std::shared_ptr<SlippiSocket>>::iterator it = m_sockets.begin();
   while(it != m_sockets.end())
   {
     FD_SET(it->first, read_fds);
     maxFD = std::max(maxFD, it->first);
+
+    // Only add a socket to the write list if it's behind on events
+    m_event_buffer_mutex.lock();
+    u32 event_count = m_event_buffer.size();
+    m_event_buffer_mutex.unlock();
+    // reset cursor if it's > event buffer size
+    //  This will happen when a new game starts
+    //  or some weird error. In both cases, starting over is right
+    if(m_sockets[it->first]->m_cursor > event_count)
+    {
+      m_sockets[it->first]->m_cursor = 0;
+    }
+    if(m_sockets[it->first]->m_cursor < event_count)
+    {
+      FD_SET(it->first, write_fds);
+    }
     it++;
   }
-  m_socket_mutex.unlock();
 
   return maxFD;
 }
@@ -203,7 +233,6 @@ void SlippicommServer::writeKeepalives()
   u32 keepalive_len = htonl((u32)ubjson_keepalive.size());
 
   // Write the data to each open socket
-  m_socket_mutex.lock();
   std::map<SOCKET, std::shared_ptr<SlippiSocket>>::iterator it = m_sockets.begin();
   while(it != m_sockets.end())
   {
@@ -224,8 +253,6 @@ void SlippicommServer::writeKeepalives()
     }
     it++;
   }
-
-  m_socket_mutex.unlock();
 }
 
 void SlippicommServer::writeBroadcast()
@@ -249,8 +276,6 @@ void SlippicommServer::writeBroadcast()
     (struct sockaddr *)&m_broadcastAddr, sizeof(m_broadcastAddr));
   sendto(m_broadcast_socket, (char*)&broadcast, sizeof(broadcast), 0,
     (struct sockaddr *)&m_localhostAddr, sizeof(m_localhostAddr));
-
-  std::cout << "Broadcast" << std::endl;
 }
 
 void SlippicommServer::handleMessage(SOCKET socket)
@@ -264,16 +289,13 @@ void SlippicommServer::handleMessage(SOCKET socket)
     // Got an error on this socket. It must be dead. Close it and remove it
     //  from the sockets list
     sockClose(socket);
-    m_socket_mutex.lock();
     m_sockets.erase(socket);
-    m_socket_mutex.unlock();
     return;
   }
 
   // Append this buffer to the socket's current data fragment buffer
   // Most of the time, this will just be the whole message. But it might
   //  get fragmented and come in pieces.
-  m_socket_mutex.lock();
   m_sockets[socket]->m_incoming_buffer.insert(
     m_sockets[socket]->m_incoming_buffer.end(), buffer, buffer+bytesread);
 
@@ -282,7 +304,6 @@ void SlippicommServer::handleMessage(SOCKET socket)
   if(m_sockets[socket]->m_incoming_buffer.size() < 4)
   {
     // Nothing to do, return and wait for more data later
-    m_socket_mutex.unlock();
     return;
   }
 
@@ -296,7 +317,6 @@ void SlippicommServer::handleMessage(SOCKET socket)
     WARN_LOG(SLIPPI, "Got unreasonably long message from Slippi client. Closing");
     sockClose(socket);
     m_sockets.erase(socket);
-    m_socket_mutex.unlock();
     return;
   }
 
@@ -305,7 +325,6 @@ void SlippicommServer::handleMessage(SOCKET socket)
   if(messageLength + 4 > m_sockets[socket]->m_incoming_buffer.size())
   {
     // Nothing to do, return and wait for more data later
-    m_socket_mutex.unlock();
     return;
   }
 
@@ -325,7 +344,6 @@ void SlippicommServer::handleMessage(SOCKET socket)
     WARN_LOG(SLIPPI, "Got unparseable UBJSON from Slippi client");
     sockClose(socket);
     m_sockets.erase(socket);
-    m_socket_mutex.unlock();
     return;
   }
 
@@ -342,7 +360,6 @@ void SlippicommServer::handleMessage(SOCKET socket)
     WARN_LOG(SLIPPI, "Got unparseable UBJSON from Slippi client");
     sockClose(socket);
     m_sockets.erase(socket);
-    m_socket_mutex.unlock();
     return;
   }
 
@@ -351,8 +368,6 @@ void SlippicommServer::handleMessage(SOCKET socket)
   end = m_sockets[socket]->m_incoming_buffer.begin()
     + messageLength + 4;
   m_sockets[socket]->m_incoming_buffer = std::vector<char>(begin, end);
-
-  m_socket_mutex.unlock();
 
   // handshake back
   // TODO CHANGE THESE VALUES CONFIGURABLE
@@ -377,20 +392,6 @@ void SlippicommServer::handleMessage(SOCKET socket)
     byteswritten = send(socket, (char*)ubjson_handshake_back.data() +
       byteswritten, (int)ubjson_handshake_back.size(), 0);
   }
-
-  // Now that we have read the client's cursor value, let's send them
-  //  all the events starting at that spot
-  m_event_buffer_mutex.lock();
-  for(uint32_t i=cursor; i < m_event_buffer.size(); i++)
-  {
-    byteswritten = 0;
-    while((uint32_t)byteswritten < m_event_buffer[i].size())
-    {
-      byteswritten = send(socket, (char*)m_event_buffer[i].data() +
-        byteswritten, (int)m_event_buffer[i].size(), 0);
-    }
-  }
-  m_event_buffer_mutex.unlock();
 }
 
 void SlippicommServer::SlippicommSocketThread(void)
@@ -457,7 +458,6 @@ void SlippicommServer::SlippicommSocketThread(void)
 		// If we're told to stop, then quit
 		if(m_stop_socket_thread)
 		{
-			m_socket_mutex.lock();
       std::map<SOCKET, std::shared_ptr<SlippiSocket>>::iterator it = m_sockets.begin();
       while(it != m_sockets.end())
       {
@@ -465,20 +465,19 @@ void SlippicommServer::SlippicommSocketThread(void)
         it++;
       }
 			sockClose(m_server_fd);
-			m_socket_mutex.unlock();
 			return;
 		}
 
-    fd_set read_fds;
+    fd_set read_fds, write_fds;
     int numActiveSockets = 0;
     // Construct the file descriptor set to select from
-    SOCKET maxFD = buildFDSet(&read_fds);
+    SOCKET maxFD = buildFDSet(&read_fds, &write_fds);
 
     // Block until activity comes in on a socket or we timeout
     timeval timeout;
-    timeout.tv_sec = 1;
-    timeout.tv_usec = 0;
-    numActiveSockets = select((int)maxFD+1, &read_fds, NULL, NULL, &timeout);
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 1000;
+    numActiveSockets = select((int)maxFD+1, &read_fds, &write_fds, NULL, &timeout);
 
     if(numActiveSockets < 0)
     {
@@ -505,7 +504,7 @@ void SlippicommServer::SlippicommSocketThread(void)
       continue;
     }
 
-    // For each new socket that has activity, handle it
+    // For each new read socket that has activity, handle it
     for(int sock = 0; sock <= maxFD; ++sock)
     {
       if(FD_ISSET(sock, &read_fds))
@@ -522,11 +521,17 @@ void SlippicommServer::SlippicommSocketThread(void)
             WARN_LOG(SLIPPI, "Failed listening to Slippi streaming socket");
             return;
           }
+
+          #ifdef _WIN32
+          u_long mode = 1
+          ioctlsocket(new_socket, FIONBIO, &mode);
+          #else
+          fcntl(new_socket, F_SETFL, fcntl(new_socket, F_GETFL, 0) | O_NONBLOCK);
+          #endif
+
           // Add the new socket to the list
-          m_socket_mutex.lock();
           std::shared_ptr<SlippiSocket> newSlippiSocket(new SlippiSocket());
       		m_sockets[new_socket] = newSlippiSocket;
-      		m_socket_mutex.unlock();
         }
         else
         {
@@ -534,6 +539,15 @@ void SlippicommServer::SlippicommSocketThread(void)
           //  an existing connection. Handle that message
           handleMessage(sock);
         }
+      }
+    }
+
+    // For each write socket that is available, write to it
+    for(int sock = 0; sock <= maxFD; ++sock)
+    {
+      if(FD_ISSET(sock, &write_fds))
+      {
+        writeEvents(sock);
       }
     }
 	}
