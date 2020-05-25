@@ -185,6 +185,10 @@ SlippicommServer::SlippicommServer()
 	WSAStartup(MAKEWORD(2,2), &wsa_data);
 	#endif
 
+  // Init some timestamps
+  m_last_write_time = std::chrono::system_clock::now();
+  m_last_broadcast_time = std::chrono::system_clock::now();
+
 	// Spawn thread for socket listener
 	m_stop_socket_thread = false;
 	m_socketThread = std::thread(&SlippicommServer::SlippicommSocketThread, this);
@@ -498,9 +502,18 @@ void SlippicommServer::SlippicommSocketThread(void)
       if(now - std::chrono::seconds(2) > last_write)
       {
         writeKeepalives();
+        m_write_time_mutex.lock();
+        m_last_write_time = now;
+        m_write_time_mutex.unlock();
       }
 
-      writeBroadcast();
+      // Broadcasts are on their own timer. Send one every 2 seconds-ish
+      //  In a perfect world, we'd have these setup on a signal-based timer but...
+      if(now - std::chrono::seconds(2) > last_write)
+      {
+        writeBroadcast();
+        m_last_broadcast_time = now;
+      }
       continue;
     }
 

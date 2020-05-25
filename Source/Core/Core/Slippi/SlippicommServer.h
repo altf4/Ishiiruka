@@ -64,6 +64,7 @@ public:
     SOCKET m_server_fd;
     std::mutex m_write_time_mutex;
     std::chrono::system_clock::time_point m_last_write_time;
+    std::chrono::system_clock::time_point m_last_broadcast_time;
     SOCKET m_broadcast_socket;
     struct sockaddr_in m_broadcastAddr, m_localhostAddr;
 
