@@ -134,7 +134,7 @@ SOCKET SlippicommServer::buildFDSet(fd_set *read_fds, fd_set *write_fds)
 
     // Only add a socket to the write list if it's behind on events
     m_event_buffer_mutex.lock();
-    u32 event_count = m_event_buffer.size();
+    u32 event_count = (u32)m_event_buffer.size();
     m_event_buffer_mutex.unlock();
     // reset cursor if it's > event buffer size
     //  This will happen when a new game starts
@@ -536,7 +536,7 @@ void SlippicommServer::SlippicommSocketThread(void)
           }
 
           #ifdef _WIN32
-          u_long mode = 1
+          u_long mode = 1;
           ioctlsocket(new_socket, FIONBIO, &mode);
           #else
           fcntl(new_socket, F_SETFL, fcntl(new_socket, F_GETFL, 0) | O_NONBLOCK);
