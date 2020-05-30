@@ -440,7 +440,7 @@ void SlippicommServer::handleMessage(SOCKET socket)
         // Convert the array to an integer
         for(uint32_t i = 0; i < cursor_array.size(); i++)
         {
-            uint32_t index = cursor_array.size() - i - 1;
+            uint32_t index = (uint32_t)cursor_array.size() - i - 1;
             cursor += (cursor_array[i]) << (8*index);
         }
     }
