@@ -11,7 +11,11 @@
 #include <sstream>
 #include <string>
 #include <sys/stat.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <unistd.h>
+#endif
 #include <vector>
 
 #include "Common/FileUtil.h"
@@ -43,6 +47,35 @@ static double StringToDouble(const std::string& text)
 
 void PopulateDevices()
 {
+  #ifdef _WIN32
+  PIPE_FD pipes[4];
+  // Windows has named pipes, but they're different. They don't exist on the
+  //  local filesystem and are transient. So rather than searching the /Pipes
+  //  directory for pipes, we just always assume there's 4 and then make them
+  for (uint32_t i = 0; i < 4; i++)
+  {
+    std::string pipename = TEXT("\\\\.\\pipe\\slippibot" + std::to_string(i));
+    pipes[i] = CreateFile(
+       pipename.data(),// pipe name
+       GENERIC_READ,   // read access
+       0,              // no sharing
+       NULL,           // default security attributes
+       OPEN_EXISTING,  // opens existing pipe
+       0,              // default attributes
+       NULL);          // no template file
+
+    // Now make it non-blocking
+    DWORD mode = PIPE_NOWAIT;
+    fSuccess = SetNamedPipeHandleState(
+       pipes[i], // pipe handle
+       &mode,    // new pipe mode
+       NULL,     // don't set maximum bytes
+       NULL);    // don't set maximum time
+
+    g_controller_interface.AddDevice(std::make_shared<PipeDevice>(pipes[i], child.virtualName));
+  }
+  #else
+
   // Search the Pipes directory for files that we can open in read-only,
   // non-blocking mode. The device name is the virtual name of the file.
   File::FSTEntry fst;
@@ -57,14 +90,15 @@ void PopulateDevices()
     const File::FSTEntry& child = fst.children[i];
     if (child.isDirectory)
       continue;
-    int fd = open(child.physicalName.c_str(), O_RDONLY | O_NONBLOCK);
+    PIPE_FD fd = open(child.physicalName.c_str(), O_RDONLY | O_NONBLOCK);
     if (fd < 0)
       continue;
     g_controller_interface.AddDevice(std::make_shared<PipeDevice>(fd, child.virtualName));
   }
+  #endif
 }
 
-PipeDevice::PipeDevice(int fd, const std::string& name) : m_fd(fd), m_name(name)
+PipeDevice::PipeDevice(PIPE_FD fd, const std::string& name) : m_fd(fd), m_name(name)
 {
   for (const auto& tok : s_button_tokens)
   {
@@ -85,7 +119,27 @@ PipeDevice::PipeDevice(int fd, const std::string& name) : m_fd(fd), m_name(name)
 
 PipeDevice::~PipeDevice()
 {
+  #ifdef _WIN32
+  CloseHandle(m_fd);
+  #else
   close(m_fd);
+  #endif
+}
+
+ssize_t PipeDevice::readFromPipe(PIPE_FD file_descriptor, char *in_buffer, size_t size)
+{
+  #ifdef _WIN32
+  ssize_t bytesread = 0;
+  fSuccess = ReadFile(
+    file_descriptor,    // pipe handle
+    in_buffer,          // buffer to receive reply
+    size,               // size of buffer
+    &bytesread,         // number of bytes read
+    NULL);              // not overlapped
+  return bytesread;
+  #else
+  return read(file_descriptor, in_buffer, size);
+  #endif
 }
 
 void PipeDevice::UpdateInput()
@@ -93,11 +147,11 @@ void PipeDevice::UpdateInput()
   // Read any pending characters off the pipe. If we hit a newline,
   // then dequeue a command off the front of m_buf and parse it.
   char buf[32];
-  ssize_t bytes_read = read(m_fd, buf, sizeof buf);
+  ssize_t bytes_read = readFromPipe(m_fd, buf, sizeof buf);
   while (bytes_read > 0)
   {
     m_buf.append(buf, bytes_read);
-    bytes_read = read(m_fd, buf, sizeof buf);
+    bytes_read = readFromPipe(m_fd, buf, sizeof buf);
   }
   std::size_t newline = m_buf.find("\n");
   while (newline != std::string::npos)

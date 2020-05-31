@@ -12,6 +12,12 @@ namespace ciface
 {
 namespace Pipes
 {
+  #ifdef _WIN32
+  typedef HANDLE PIPE_FD;
+  #else
+  typedef int PIPE_FD;
+  #endif
+
 // To create a piped controller input, create a named pipe in the
 // Pipes directory and write commands out to it. Commands are separated
 // by a newline character, with spaces separating command tokens.
@@ -27,7 +33,7 @@ void PopulateDevices();
 class PipeDevice : public Core::Device
 {
 public:
-  PipeDevice(int fd, const std::string& name);
+  PipeDevice(PIPE_FD fd, const std::string& name);
   ~PipeDevice();
 
   void UpdateInput() override;
@@ -49,8 +55,9 @@ private:
   void AddAxis(const std::string& name, double value);
   void ParseCommand(const std::string& command);
   void SetAxis(const std::string& entry, double value);
+  ssize_t readFromPipe(PIPE_FD file_descriptor, char *in_buffer, size_t size);
 
-  const int m_fd;
+  const PIPE_FD m_fd;
   const std::string m_name;
   std::string m_buf;
   std::map<std::string, PipeInput*> m_buttons;
