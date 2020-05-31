@@ -11,11 +11,6 @@
 #include <sstream>
 #include <string>
 #include <sys/stat.h>
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <unistd.h>
-#endif
 #include <vector>
 
 #include "Common/FileUtil.h"
@@ -54,7 +49,7 @@ void PopulateDevices()
   //  directory for pipes, we just always assume there's 4 and then make them
   for (uint32_t i = 0; i < 4; i++)
   {
-    std::string pipename = TEXT("\\\\.\\pipe\\slippibot" + std::to_string(i));
+    std::wstring pipename = L"\\\\.\\pipe\\slippibot" + std::to_wstring(i);
     pipes[i] = CreateFile(
        pipename.data(),// pipe name
        GENERIC_READ,   // read access
@@ -72,7 +67,9 @@ void PopulateDevices()
        NULL,     // don't set maximum bytes
        NULL);    // don't set maximum time
 
-    g_controller_interface.AddDevice(std::make_shared<PipeDevice>(pipes[i], child.virtualName));
+    // Regular non-wide string
+    std::string pipestr = "\\\\.\\pipe\\slippibot" + std::to_wstring(i)
+    g_controller_interface.AddDevice(std::make_shared<PipeDevice>(pipes[i], pipestr));
   }
   #else
 
@@ -126,17 +123,21 @@ PipeDevice::~PipeDevice()
   #endif
 }
 
-ssize_t PipeDevice::readFromPipe(PIPE_FD file_descriptor, char *in_buffer, size_t size)
+s32 PipeDevice::readFromPipe(PIPE_FD file_descriptor, char *in_buffer, size_t size)
 {
   #ifdef _WIN32
-  ssize_t bytesread = 0;
-  fSuccess = ReadFile(
+  DWORD bytesread = 0;
+  bool success = ReadFile(
     file_descriptor,    // pipe handle
     in_buffer,          // buffer to receive reply
-    size,               // size of buffer
+    (DWORD)size,        // size of buffer
     &bytesread,         // number of bytes read
     NULL);              // not overlapped
-  return bytesread;
+  if(!success)
+  {
+      return -1;
+  }
+  return (s32)bytesread;
   #else
   return read(file_descriptor, in_buffer, size);
   #endif
@@ -147,7 +148,7 @@ void PipeDevice::UpdateInput()
   // Read any pending characters off the pipe. If we hit a newline,
   // then dequeue a command off the front of m_buf and parse it.
   char buf[32];
-  ssize_t bytes_read = readFromPipe(m_fd, buf, sizeof buf);
+  s32 bytes_read = readFromPipe(m_fd, buf, sizeof buf);
   while (bytes_read > 0)
   {
     m_buf.append(buf, bytes_read);

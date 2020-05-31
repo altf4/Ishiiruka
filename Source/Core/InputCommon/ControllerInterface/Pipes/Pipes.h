@@ -7,6 +7,11 @@
 #include <map>
 #include <string>
 #include <vector>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 namespace ciface
 {
@@ -55,7 +60,7 @@ private:
   void AddAxis(const std::string& name, double value);
   void ParseCommand(const std::string& command);
   void SetAxis(const std::string& entry, double value);
-  ssize_t readFromPipe(PIPE_FD file_descriptor, char *in_buffer, size_t size);
+  s32 readFromPipe(PIPE_FD file_descriptor, char *in_buffer, size_t size);
 
   const PIPE_FD m_fd;
   const std::string m_name;
