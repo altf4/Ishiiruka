@@ -61,14 +61,14 @@ void PopulateDevices()
 
     // Now make it non-blocking
     DWORD mode = PIPE_NOWAIT;
-    fSuccess = SetNamedPipeHandleState(
+    SetNamedPipeHandleState(
        pipes[i], // pipe handle
        &mode,    // new pipe mode
        NULL,     // don't set maximum bytes
        NULL);    // don't set maximum time
 
     // Regular non-wide string
-    std::string pipestr = "\\\\.\\pipe\\slippibot" + std::to_wstring(i)
+    std::string pipestr = "\\\\.\\pipe\\slippibot" + std::to_string(i);
     g_controller_interface.AddDevice(std::make_shared<PipeDevice>(pipes[i], pipestr));
   }
   #else
