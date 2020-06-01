@@ -49,7 +49,7 @@ void PopulateDevices()
   //  directory for pipes, we just always assume there's 4 and then make them
   for (uint32_t i = 0; i < 4; i++)
   {
-    std::wstring pipename = L"\\\\.\\pipe\\slippibot" + std::to_wstring(i+1);
+    std::string pipename = "\\\\.\\pipe\\slippibot" + std::to_string(i+1);
     pipes[i] = CreateNamedPipeA(
        pipename.data(),       // pipe name
        PIPE_ACCESS_INBOUND,   // read access
@@ -62,14 +62,9 @@ void PopulateDevices()
     );
 
     // Connect the pipe. It's nonblocking, so this won't wait for the other end
-    bool success = ConnectNamedPipe(pipes[i], NULL);
-
-    // Regular non-wide string
-    if(success)
-    {
-      std::string pipestr = "slippibot" + std::to_string(i+1);
-      g_controller_interface.AddDevice(std::make_shared<PipeDevice>(pipes[i], pipestr));
-    }
+    ConnectNamedPipe(pipes[i], NULL);
+    std::string ui_pipe_name = "slippibot" + std::to_string(i+1);
+    g_controller_interface.AddDevice(std::make_shared<PipeDevice>(pipes[i], ui_pipe_name));
   }
   #else
 
