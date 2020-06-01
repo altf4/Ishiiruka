@@ -49,27 +49,27 @@ void PopulateDevices()
   //  directory for pipes, we just always assume there's 4 and then make them
   for (uint32_t i = 0; i < 4; i++)
   {
-    std::wstring pipename = L"\\\\.\\pipe\\slippibot" + std::to_wstring(i);
-    pipes[i] = CreateFile(
-       pipename.data(),// pipe name
-       GENERIC_READ,   // read access
-       0,              // no sharing
-       NULL,           // default security attributes
-       OPEN_EXISTING,  // opens existing pipe
-       0,              // default attributes
-       NULL);          // no template file
+    std::wstring pipename = L"\\\\.\\pipe\\slippibot" + std::to_wstring(i+1);
+    pipes[i] = CreateNamedPipeA(
+       pipename.data(),       // pipe name
+       PIPE_ACCESS_INBOUND,   // read access
+       PIPE_READMODE_BYTE | PIPE_NOWAIT, // byte mode, nonblocking
+       1,                     // number of clients
+       0,                     // output buffer size
+       0,                     // input buffer size
+       0,                     // timeout value
+       NULL
+    );
 
-    // Now make it non-blocking
-    DWORD mode = PIPE_NOWAIT;
-    SetNamedPipeHandleState(
-       pipes[i], // pipe handle
-       &mode,    // new pipe mode
-       NULL,     // don't set maximum bytes
-       NULL);    // don't set maximum time
+    // Connect the pipe. It's nonblocking, so this won't wait for the other end
+    bool success = ConnectNamedPipe(pipes[i], NULL);
 
     // Regular non-wide string
-    std::string pipestr = "\\\\.\\pipe\\slippibot" + std::to_string(i);
-    g_controller_interface.AddDevice(std::make_shared<PipeDevice>(pipes[i], pipestr));
+    if(success)
+    {
+      std::string pipestr = "slippibot" + std::to_string(i+1);
+      g_controller_interface.AddDevice(std::make_shared<PipeDevice>(pipes[i], pipestr));
+    }
   }
   #else
 
