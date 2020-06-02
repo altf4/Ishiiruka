@@ -51,16 +51,18 @@ void PopulateDevices()
   {
     std::string pipename = "\\\\.\\pipe\\slippibot" + std::to_string(i+1);
     pipes[i] = CreateNamedPipeA(
-       pipename.data(),       // pipe name
-       PIPE_ACCESS_INBOUND,   // read access
-       PIPE_TYPE_BYTE, // byte mode, nonblocking
-       1,                     // number of clients
-       256,                     // output buffer size
-       256,                     // input buffer size
-       0,                     // timeout value
-       NULL                   // security attributes
+       pipename.data(),              // pipe name
+       PIPE_ACCESS_INBOUND,          // read access, inward only
+       PIPE_TYPE_BYTE | PIPE_NOWAIT, // byte mode, nonblocking
+       1,                            // number of clients
+       256,                          // output buffer size
+       256,                          // input buffer size
+       0,                            // timeout value
+       NULL                          // security attributes
     );
 
+    // We're in nonblocking mode, so this won't wait for clients
+    ConnectNamedPipe(pipes[i], NULL);
     std::string ui_pipe_name = "slippibot" + std::to_string(i+1);
     g_controller_interface.AddDevice(std::make_shared<PipeDevice>(pipes[i], ui_pipe_name));
   }
@@ -134,6 +136,7 @@ s32 PipeDevice::readFromPipe(PIPE_FD file_descriptor, char *in_buffer, size_t si
   if(!peek_success && (GetLastError() == ERROR_BROKEN_PIPE))
   {
     DisconnectNamedPipe(file_descriptor);
+    ConnectNamedPipe(file_descriptor, NULL);
     return -1;
   }
 
