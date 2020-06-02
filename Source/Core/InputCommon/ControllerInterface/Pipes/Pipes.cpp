@@ -53,16 +53,14 @@ void PopulateDevices()
     pipes[i] = CreateNamedPipeA(
        pipename.data(),       // pipe name
        PIPE_ACCESS_INBOUND,   // read access
-       PIPE_READMODE_BYTE | PIPE_NOWAIT, // byte mode, nonblocking
+       PIPE_TYPE_BYTE, // byte mode, nonblocking
        1,                     // number of clients
-       0,                     // output buffer size
-       0,                     // input buffer size
+       256,                     // output buffer size
+       256,                     // input buffer size
        0,                     // timeout value
-       NULL
+       NULL                   // security attributes
     );
 
-    // Connect the pipe. It's nonblocking, so this won't wait for the other end
-    ConnectNamedPipe(pipes[i], NULL);
     std::string ui_pipe_name = "slippibot" + std::to_string(i+1);
     g_controller_interface.AddDevice(std::make_shared<PipeDevice>(pipes[i], ui_pipe_name));
   }
@@ -121,16 +119,36 @@ PipeDevice::~PipeDevice()
 s32 PipeDevice::readFromPipe(PIPE_FD file_descriptor, char *in_buffer, size_t size)
 {
   #ifdef _WIN32
+
+  u32 bytes_available = 0;
   DWORD bytesread = 0;
-  bool success = ReadFile(
-    file_descriptor,    // pipe handle
-    in_buffer,          // buffer to receive reply
-    (DWORD)size,        // size of buffer
-    &bytesread,         // number of bytes read
-    NULL);              // not overlapped
-  if(!success)
+  bool peek_success = PeekNamedPipe(
+    file_descriptor,
+    NULL,
+    0,
+    NULL,
+    (LPDWORD)&bytes_available,
+    NULL
+  );
+
+  if(!peek_success && (GetLastError() == ERROR_BROKEN_PIPE)
   {
-      return -1;
+    DisconnectNamedPipe(file_descriptor);
+    return -1;
+  }
+
+  if(peek_success && (bytes_available > 0))
+  {
+    bool success = ReadFile(
+      file_descriptor,    // pipe handle
+      in_buffer,          // buffer to receive reply
+      (DWORD)std::min(bytes_available, (u32)size),        // size of buffer
+      &bytesread,         // number of bytes read
+      NULL);              // not overlapped
+    if(!success)
+    {
+        return -1;
+    }
   }
   return (s32)bytesread;
   #else
