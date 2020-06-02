@@ -131,7 +131,7 @@ s32 PipeDevice::readFromPipe(PIPE_FD file_descriptor, char *in_buffer, size_t si
     NULL
   );
 
-  if(!peek_success && (GetLastError() == ERROR_BROKEN_PIPE)
+  if(!peek_success && (GetLastError() == ERROR_BROKEN_PIPE))
   {
     DisconnectNamedPipe(file_descriptor);
     return -1;
