@@ -125,10 +125,6 @@ void SlippiSpectateServer::startGame()
     }
 
     m_event_buffer_mutex.lock();
-    if(m_event_buffer.size() > 0)
-    {
-        m_cursor_offset += m_event_buffer.size();
-    }
     m_event_buffer.clear();
     m_in_game = true;
 
@@ -150,6 +146,10 @@ void SlippiSpectateServer::endGame()
     }
 
     m_event_buffer_mutex.lock();
+    if(m_event_buffer.size() > 0)
+    {
+        m_cursor_offset += m_event_buffer.size();
+    }
     m_menu_event.clear();
     m_in_game = false;
     m_event_buffer_mutex.unlock();
@@ -233,6 +233,14 @@ void SlippiSpectateServer::handleMessage(u8 *buffer, u32 length, u16 peer_id)
             }
 
             sent_cursor = m_sockets[peer_id]->m_cursor + m_cursor_offset;
+
+            // If someone joins while at the menu, don't catch them up
+            //  set their cursor to the end
+            if(!m_in_game)
+            {
+                m_sockets[peer_id]->m_cursor = m_event_buffer.size();
+            }
+
             m_event_buffer_mutex.unlock();
 
             json reply;
