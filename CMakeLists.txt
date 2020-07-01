@@ -9,7 +9,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(USE_EGL "Enables EGL OpenGL Interface" OFF)
 option(TRY_X11 "Enables X11 Support" ON)
-option(USE_SHARED_PROTOBUF "Use shared protobuf library" ON)
 option(USE_SHARED_ENET "Use shared libenet if found rather than Dolphin's soon-to-compatibly-diverge version" OFF)
 option(USE_SHARED_GTEST "Use shared gtest library if found" OFF)
 option(USE_UPNP "Enables UPnP port mapping support" ON)
@@ -652,8 +651,6 @@ if(ANDROID)
 	include_directories(Source/Android)
 endif()
 
-list(APPEND LIBS protobuf)
-
 ########################################
 # Process externals and setup their include directories
 #
@@ -677,18 +674,6 @@ include_directories(Externals/semver/include)
 
 add_subdirectory(Externals/open-vcdiff)
 include_directories(Externals/open-vcdiff)
-
-# Protobuf dependency. Use global or local one?
-if(USE_SHARED_PROTOBUF)
-	set(Protobuf_DEBUG TRUE)
-	find_package(Protobuf REQUIRED)
-	if(Protobuf_VERSION VERSION_LESS 3.0.0)
-		message("Installed version of protobuf is too old. Use at least 3.0.0")
-	endif()
-	set(Protobuf_USE_STATIC_LIBS ON)
-	set(PROTOBUF_SOURCE_DIRECTORY "${PROJECT_SOURCE_DIR}/Source/Core/Core/Slippi/")
-	protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS ${PROTOBUF_SOURCE_DIRECTORY}/slippicomm.proto)
-endif()
 
 if(USE_SHARED_ENET)
 	check_lib(ENET libenet enet enet/enet.h QUIET)

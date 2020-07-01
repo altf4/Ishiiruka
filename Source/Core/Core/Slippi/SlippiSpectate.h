@@ -6,7 +6,8 @@
 #include <mutex>
 
 #include <enet/enet.h>
-#include "slippicomm.pb.h"
+#include <json.hpp>
+using json = nlohmann::json;
 
 // Sockets in windows are unsigned
 #ifdef _WIN32
@@ -25,6 +26,13 @@ typedef int SOCKET;
 #define PAYLOAD_TYPE 2
 #define KEEPALIVE_TYPE 3
 #define MENU_TYPE 4
+
+struct broadcast_msg
+{
+    char	cmd[10];
+    u8		mac_addr[6];	// Wi-Fi interface MAC address
+    char	nickname[32];	// Console nickname
+};
 
 // Actual socket value is not here since that's the key of the map
 class SlippiSocket
@@ -74,7 +82,7 @@ public:
 
     std::thread m_socketThread;
     std::chrono::system_clock::time_point m_last_broadcast_time;
-    std::string m_broadcast_message;
+    struct broadcast_msg m_broadcast_message;
     SOCKET m_broadcast_socket;
     struct sockaddr_in m_broadcastAddr;
     // In order to emulate Wii behavior, the cursor position should be strictly
@@ -100,5 +108,5 @@ public:
     //  Does nothing if they're already caught up.
     void writeEvents(u16 peer_id);
     // Punch a hold in the NAT to the remote end
-    void sendHolePunchMsg(std::string remoteIp, u16 remotePort, u16 localPort)
+    void sendHolePunchMsg(std::string remoteIp, u16 remotePort, u16 localPort);
 };

@@ -2,6 +2,7 @@
 #include "Common/Logging/Log.h"
 #include "Common/CommonTypes.h"
 #include <Core/ConfigManager.h>
+#include "base64.hpp"
 
 // Networking
 #ifdef _WIN32
@@ -30,16 +31,14 @@ void SlippiSpectateServer::write(u8 *payload, u32 length)
     u64 offset = m_cursor_offset;
     m_event_buffer_mutex.unlock();
 
-    slippicomm::SlippiMessage wrapper;
-    slippicomm::GameEvent *game_event = new slippicomm::GameEvent();
-    game_event->set_cursor(offset+cursor);
-    game_event->set_next_cursor(offset+cursor+1);
-    game_event->set_payload(payload, length);
-
-    // wrapper takes ownership of the pointer here. So don't delete the object
-    wrapper.set_allocated_game_event(game_event);
-    std::string buffer;
-    wrapper.SerializeToString(&buffer);
+    // Make json wrapper for game event
+    json game_event;
+    game_event["type"] = "game_event";
+    game_event["cursor"] = offset+cursor;
+    game_event["next_cursor"] = offset+cursor+1;
+    std::string str_payload((char*)payload, length);
+    game_event["payload"] = base64::Base64::Encode(str_payload);
+    std::string buffer = game_event.dump();
 
     // Put this message into the event buffer
     //  This will queue the message up to go out for all clients
@@ -62,17 +61,15 @@ void SlippiSpectateServer::writeMenuEvent(u8 *payload, u32 length)
       it->second->m_sent_menu = false;
   }
 
-  slippicomm::SlippiMessage wrapper;
-  slippicomm::MenuEvent *menu_event = new slippicomm::MenuEvent();
-  menu_event->set_payload(payload, length);
-
-  // wrapper takes ownership of the pointer here. So don't delete the object
-  wrapper.set_allocated_menu_event(menu_event);
+  json menu_event;
+  std::string str_payload((char*)payload, length);
+  menu_event["type"] = "menu_event";
+  menu_event["payload"] = base64::Base64::Encode(str_payload);
 
   // Put this message into the menu event buffer
   //  This will queue the message up to go out for all clients
   m_event_buffer_mutex.lock();
-  wrapper.SerializeToString(&m_menu_event);
+  m_menu_event = menu_event.dump();
   m_event_buffer_mutex.unlock();
 }
 
@@ -82,41 +79,38 @@ void SlippiSpectateServer::writeEvents(u16 peer_id)
     bool in_game = m_in_game;
     m_event_buffer_mutex.unlock();
 
-    if(in_game)
+    // Send menu events
+    if(!in_game && !m_sockets[peer_id]->m_sent_menu)
     {
-        // Get the cursor for this socket
-        u64 cursor = m_sockets[peer_id]->m_cursor;
-
-        // Loop through each event that needs to be sent
-        //  send all the events starting at their cursor
         m_event_buffer_mutex.lock();
-        for(u64 i = cursor; i < m_event_buffer.size(); i++)
-        {
-            ENetPacket *packet = enet_packet_create(m_event_buffer[i].data(),
-                                                    m_event_buffer[i].size(),
-                                                    ENET_PACKET_FLAG_RELIABLE);
-            // Batch for sending
-            enet_peer_send(m_sockets[peer_id]->m_peer, 0, packet);
-            m_sockets[peer_id]->m_cursor++;
-        }
+        ENetPacket *packet = enet_packet_create(m_menu_event.data(),
+                                                m_menu_event.length(),
+                                                ENET_PACKET_FLAG_RELIABLE);
+        // Batch for sending
+        enet_peer_send(m_sockets[peer_id]->m_peer, 0, packet);
+        // Record for the peer that it was sent
+        m_sockets[peer_id]->m_sent_menu = true;
         m_event_buffer_mutex.unlock();
+    }
 
+    // Send game events
+
+    // Get the cursor for this socket
+    u64 cursor = m_sockets[peer_id]->m_cursor;
+
+    // Loop through each event that needs to be sent
+    //  send all the events starting at their cursor
+    m_event_buffer_mutex.lock();
+    for(u64 i = cursor; i < m_event_buffer.size(); i++)
+    {
+        ENetPacket *packet = enet_packet_create(m_event_buffer[i].data(),
+                                                m_event_buffer[i].size(),
+                                                ENET_PACKET_FLAG_RELIABLE);
+        // Batch for sending
+        enet_peer_send(m_sockets[peer_id]->m_peer, 0, packet);
+        m_sockets[peer_id]->m_cursor++;
     }
-    else {
-        if(!m_sockets[peer_id]->m_sent_menu)
-        {
-            // We're in a menu, so send the menu event
-            m_event_buffer_mutex.lock();
-            ENetPacket *packet = enet_packet_create(m_menu_event.data(),
-                                                    m_menu_event.length(),
-                                                    ENET_PACKET_FLAG_RELIABLE);
-            // Batch for sending
-            enet_peer_send(m_sockets[peer_id]->m_peer, 0, packet);
-            // Record for the peer that it was sent
-            m_sockets[peer_id]->m_sent_menu = true;
-            m_event_buffer_mutex.unlock();
-        }
-    }
+    m_event_buffer_mutex.unlock();
 }
 
 // We assume, for the sake of simplicity, that all clients have finished reading
@@ -185,23 +179,37 @@ SlippiSpectateServer::~SlippiSpectateServer()
 
 void SlippiSpectateServer::writeBroadcast()
 {
-    sendto(m_broadcast_socket, (char*)m_broadcast_message.data(), m_broadcast_message.length(), 0,
+    sendto(m_broadcast_socket, (char*)&m_broadcast_message, sizeof(m_broadcast_message), 0,
         (struct sockaddr *)&m_broadcastAddr, sizeof(m_broadcastAddr));
+
     m_last_broadcast_time = std::chrono::system_clock::now();
 }
 
 void SlippiSpectateServer::handleMessage(u8 *buffer, u32 length, u16 peer_id)
 {
     // Unpack the message
-    slippicomm::SlippiMessage message;
-    if(message.ParseFromArray(buffer, length))
+    std::string message((char*)buffer, length);
+    json json_message = json::parse(message);
+    if(!json_message.is_discarded() && (json_message.find("type") != json_message.end()))
     {
         // Check what type of message this is
-        if(message.has_connect_request())
+        if(!json_message["type"].is_string())
+        {
+            return;
+        }
+
+        if(json_message["type"] == "connect_request")
         {
             // Get the requested cursor
-            slippicomm::ConnectRequest connect_request = message.connect_request();
-            u32 requested_cursor = connect_request.cursor();
+            if(json_message.find("cursor") == json_message.end())
+            {
+                return;
+            }
+            if(!json_message["cursor"].is_number_integer())
+            {
+                return;
+            }
+            u32 requested_cursor = json_message["cursor"];
             u32 sent_cursor = 0;
             // Set the user's cursor position
             m_event_buffer_mutex.lock();
@@ -210,12 +218,12 @@ void SlippiSpectateServer::handleMessage(u8 *buffer, u32 length, u16 peer_id)
                 // If the requested cursor is past what events we even have, then just tell them to start over
                 if(requested_cursor > m_event_buffer.size() + m_cursor_offset)
                 {
-                  m_sockets[peer_id]->m_cursor = 0;
+                    m_sockets[peer_id]->m_cursor = 0;
                 }
                 // Requested cursor is in the middle of a live match, events that we have
                 else
                 {
-                  m_sockets[peer_id]->m_cursor = requested_cursor - m_cursor_offset;
+                    m_sockets[peer_id]->m_cursor = requested_cursor - m_cursor_offset;
                 }
             }
             else
@@ -227,33 +235,29 @@ void SlippiSpectateServer::handleMessage(u8 *buffer, u32 length, u16 peer_id)
             sent_cursor = m_sockets[peer_id]->m_cursor + m_cursor_offset;
             m_event_buffer_mutex.unlock();
 
-            slippicomm::SlippiMessage reply;
-            slippicomm::ConnectReply *connect_reply = new slippicomm::ConnectReply();
-            connect_reply->set_nick(SConfig::GetInstance().m_slippiConsoleName);
-            connect_reply->set_version("1.9.0-dev-2");
-            connect_reply->set_cursor(sent_cursor);
-            // Reply takes ownership of the pointer here. So don't delete the object
-            reply.set_allocated_connect_reply(connect_reply);
+            json reply;
+            reply["type"] = "connect_reply";
+            reply["nick"] = SConfig::GetInstance().m_slippiConsoleName;
+            reply["version"] = "1.9.0-dev-2";
+            reply["cursor"] = sent_cursor;
 
-            std::string packet_buffer;
-            reply.SerializeToString(&packet_buffer);
+            std::string packet_buffer = reply.dump();
 
             ENetPacket *packet = enet_packet_create(packet_buffer.data(),
                           packet_buffer.length(),
                           ENET_PACKET_FLAG_RELIABLE);
 
+            std::cout <<"New peer starting at " << sent_cursor << std::endl;
+
             // Batch for sending
             enet_peer_send(m_sockets[peer_id]->m_peer, 0, packet);
-
+            // Put the client in the right in_game state
+            m_sockets[peer_id]->m_shook_hands = true;
         }
     }
-
-
-    // Put the client in the right in_game state
-    m_sockets[peer_id]->m_shook_hands = true;
 }
 
-void SlippiMatchmaking::sendHolePunchMsg(std::string remoteIp, u16 remotePort, u16 localPort)
+void SlippiSpectateServer::sendHolePunchMsg(std::string remoteIp, u16 remotePort, u16 localPort)
 {
   	// We are explicitly setting the client address because we are trying to utilize our connection
   	// to the matchmaking service in order to hole punch. This port will end up being the port
@@ -267,7 +271,7 @@ void SlippiMatchmaking::sendHolePunchMsg(std::string remoteIp, u16 remotePort, u
   	if (client == nullptr)
   	{
     		// Failed to create client
-    		m_state = ProcessState::ERROR_ENCOUNTERED;
+    		// m_state = ProcessState::ERROR_ENCOUNTERED;
     		// m_errorMsg = "Failed to start hole punch";
     		return;
   	}
@@ -281,7 +285,7 @@ void SlippiMatchmaking::sendHolePunchMsg(std::string remoteIp, u16 remotePort, u
   	if (server == nullptr)
   	{
     		// Failed to connect to server
-    		m_state = ProcessState::ERROR_ENCOUNTERED;
+    		// m_state = ProcessState::ERROR_ENCOUNTERED;
     		// m_errorMsg = "Failed to start hole punch";
     		return;
   	}
@@ -311,12 +315,12 @@ void SlippiSpectateServer::SlippicommSocketThread(void)
 
     // Setup the broadcast message
     //  It never changes, so let's just do this once
-    slippicomm::SlippiMessage wrapper;
-    slippicomm::Advertisement *advert = new slippicomm::Advertisement();
-    advert->set_nick(SConfig::GetInstance().m_slippiConsoleName);
-    // Reply takes ownership of the pointer here. So don't delete the object
-    wrapper.set_allocated_advertisement(advert);
-    wrapper.SerializeToString(&m_broadcast_message);
+    const char* nickname = SConfig::GetInstance().m_slippiConsoleName.c_str();
+    char cmd[] = "SLIP_READY";
+
+    memcpy(m_broadcast_message.cmd, cmd, sizeof(m_broadcast_message.cmd));
+    memset(m_broadcast_message.mac_addr, 0, sizeof(m_broadcast_message.mac_addr));
+    strncpy(m_broadcast_message.nickname, nickname, sizeof(m_broadcast_message.nickname));
 
     if (enet_initialize () != 0) {
         // TODO replace all printfs with logs
