@@ -255,8 +255,6 @@ void SlippiSpectateServer::handleMessage(u8 *buffer, u32 length, u16 peer_id)
                           packet_buffer.length(),
                           ENET_PACKET_FLAG_RELIABLE);
 
-            std::cout <<"New peer starting at " << sent_cursor << std::endl;
-
             // Batch for sending
             enet_peer_send(m_sockets[peer_id]->m_peer, 0, packet);
             // Put the client in the right in_game state
@@ -334,6 +332,14 @@ void SlippiSpectateServer::SlippicommSocketThread(void)
         // TODO replace all printfs with logs
         printf("An error occurred while initializing ENet.\n");
         return;
+    }
+
+    // If a spectator is assigned, then send the hole punch
+    if(!SConfig::GetInstance().m_spectator_IP.empty())
+    {
+        sendHolePunchMsg(SConfig::GetInstance().m_spectator_IP,
+          SConfig::GetInstance().m_spectator_port,
+          51441);
     }
 
     ENetAddress server_address = {0};

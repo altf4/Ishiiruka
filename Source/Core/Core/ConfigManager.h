@@ -77,6 +77,8 @@ struct SConfig : NonCopyable
 
 	// enable Slippi Networking output
 	bool m_slippiNetworkingOutput;
+	std::string m_spectator_IP;
+	int m_spectator_port;
 
 	GameType m_gameType;
 

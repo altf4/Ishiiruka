@@ -160,6 +160,8 @@ void SConfig::SaveGeneralSettings(IniFile& ini)
 	general->Set("WiiSDCardPath", m_strWiiSDCardPath);
 	general->Set("SlippiConsoleName", m_slippiConsoleName);
 	general->Set("EnableSlippiNetworkingOutput", m_slippiNetworkingOutput);
+	general->Set("SlippiSpectatorIP", m_spectator_IP);
+	general->Set("SlippiSpectatorPort", m_spectator_port);
 
 #ifdef USE_GDBSTUB
 #ifndef _WIN32
@@ -481,6 +483,8 @@ void SConfig::LoadGeneralSettings(IniFile& ini)
 	File::SetUserPath(F_WIISDCARD_IDX, m_strWiiSDCardPath);
 	general->Get("SlippiConsoleName", &m_slippiConsoleName, "Dolphin");
 	general->Get("EnableSlippiNetworkingOutput", &m_slippiNetworkingOutput, false);
+	general->Get("SlippiSpectatorIP", &m_spectator_IP, "");
+	general->Get("SlippiSpectatorPort", &m_spectator_port, 0);
 }
 
 void SConfig::LoadInterfaceSettings(IniFile& ini)
