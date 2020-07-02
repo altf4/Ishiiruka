@@ -274,44 +274,21 @@ void SlippiSpectateServer::handleMessage(u8 *buffer, u32 length, u16 peer_id)
     }
 }
 
-void SlippiSpectateServer::sendHolePunchMsg(std::string remoteIp, u16 remotePort, u16 localPort)
+void SlippiSpectateServer::sendHolePunchMsg(ENetHost *host, std::string remoteIp, u16 remotePort)
 {
-  	// We are explicitly setting the client address because we are trying to utilize our connection
-  	// to the matchmaking service in order to hole punch. This port will end up being the port
-  	// we listen on when we start our server
-  	ENetAddress clientAddr;
-  	clientAddr.host = ENET_HOST_ANY;
-  	clientAddr.port = localPort;
-
-  	auto client = enet_host_create(&clientAddr, 1, 3, 0, 0);
-
-  	if (client == nullptr)
-  	{
-    		// Failed to create client
-    		// m_state = ProcessState::ERROR_ENCOUNTERED;
-    		// m_errorMsg = "Failed to start hole punch";
-    		return;
-  	}
-
   	ENetAddress addr;
   	enet_address_set_host(&addr, remoteIp.c_str());
   	addr.port = remotePort;
 
-  	auto server = enet_host_connect(client, &addr, 3, 0);
-
+  	auto server = enet_host_connect(host, &addr, 3, 0);
   	if (server == nullptr)
   	{
     		// Failed to connect to server
-    		// m_state = ProcessState::ERROR_ENCOUNTERED;
-    		// m_errorMsg = "Failed to start hole punch";
     		return;
   	}
 
-  	// Send connect message?
-  	enet_host_flush(client);
-
+  	enet_host_flush(host);
   	enet_peer_reset(server);
-  	enet_host_destroy(client);
 }
 
 void SlippiSpectateServer::SlippicommSocketThread(void)
@@ -343,14 +320,6 @@ void SlippiSpectateServer::SlippicommSocketThread(void)
         // TODO replace all printfs with logs
         printf("An error occurred while initializing ENet.\n");
         return;
-    }
-
-    // If a spectator is assigned, then send the hole punch
-    if(!SConfig::GetInstance().m_spectator_IP.empty())
-    {
-        sendHolePunchMsg(SConfig::GetInstance().m_spectator_IP,
-          SConfig::GetInstance().m_spectator_port,
-          51441);
     }
 
     ENetAddress server_address = {0};
@@ -391,6 +360,15 @@ void SlippiSpectateServer::SlippicommSocketThread(void)
         if(now - std::chrono::seconds(2) > m_last_broadcast_time)
         {
             writeBroadcast();
+            // Also take this time to punch a connection out to the spectator
+            if(!SConfig::GetInstance().m_spectator_IP.empty())
+            {
+                // TODO don't send this hole punch if we're already connected to that machine
+                //  look that in the sockets somehow
+                sendHolePunchMsg(server,
+                  SConfig::GetInstance().m_spectator_IP,
+                  SConfig::GetInstance().m_spectator_port);
+            }
         }
 
         ENetEvent event;
