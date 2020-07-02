@@ -224,7 +224,7 @@ class CEXISlippi : public IEXIDevice
 	int32_t lastFFWFrame = INT_MIN;
 	std::vector<u8> m_read_queue;
 	std::unique_ptr<Slippi::SlippiGame> m_current_game = nullptr;
-  SlippiSpectateServer *m_slippiserver = 0;
+  SlippiSpectateServer *m_slippiserver = nullptr;
 
 	u16 *lastSelectedStage = nullptr;
 
