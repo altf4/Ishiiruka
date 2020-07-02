@@ -37,7 +37,14 @@ void SlippiSpectateServer::write(u8 *payload, u32 length)
     game_event["cursor"] = offset+cursor;
     game_event["next_cursor"] = offset+cursor+1;
     std::string str_payload((char*)payload, length);
-    game_event["payload"] = base64::Base64::Encode(str_payload);
+    if(str_payload.empty())
+    {
+        game_event["payload"] = "";
+    }
+    else
+    {
+        game_event["payload"] = base64::Base64::Encode(str_payload);
+    }
     std::string buffer = game_event.dump();
 
     // Put this message into the event buffer
