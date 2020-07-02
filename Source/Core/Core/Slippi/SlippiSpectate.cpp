@@ -252,7 +252,7 @@ void SlippiSpectateServer::handleMessage(u8 *buffer, u32 length, u16 peer_id)
             std::string packet_buffer = reply.dump();
 
             ENetPacket *packet = enet_packet_create(packet_buffer.data(),
-                          packet_buffer.length(),
+                          (u32)packet_buffer.length(),
                           ENET_PACKET_FLAG_RELIABLE);
 
             // Batch for sending
@@ -402,7 +402,7 @@ void SlippiSpectateServer::SlippicommSocketThread(void)
                 }
                 case ENET_EVENT_TYPE_RECEIVE:
                 {
-                    handleMessage(event.packet->data, event.packet->dataLength, event.peer->outgoingPeerID);
+                    handleMessage(event.packet->data, (u32)event.packet->dataLength, event.peer->outgoingPeerID);
                     /* Clean up the packet now that we're done using it. */
                     enet_packet_destroy (event.packet);
 
@@ -410,14 +410,14 @@ void SlippiSpectateServer::SlippicommSocketThread(void)
                 }
                 case ENET_EVENT_TYPE_DISCONNECT:
                 {
-                    printf ("%s disconnected.\n", event.peer -> data);
+                    printf ("%s disconnected.\n", (char*)event.peer -> data);
                     /* Reset the peer's client information. */
                     event.peer -> data = NULL;
                     break;
                 }
                 default:
                 {
-                    printf ("%s Unknown message came in.\n", event.peer -> data);
+                    printf ("%s Unknown message came in.\n", (char*)event.peer -> data);
                     break;
                 }
             }

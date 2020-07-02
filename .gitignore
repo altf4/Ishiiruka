@@ -70,5 +70,3 @@ semver.lib
 semver.idb
 semver.pdb
 semver.log
-*.pb.cc
-*.pb.h

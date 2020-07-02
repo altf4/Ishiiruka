@@ -288,7 +288,6 @@
     <ClCompile Include="Slippi\SlippiReplayComm.cpp" />
     <ClCompile Include="Slippi\SlippiSavestate.cpp" />
     <ClCompile Include="Slippi\SlippiSpectate.cpp" />
-    <ClCompile Include="Slippi\slippicomm.pb.cc" />
     <ClCompile Include="Slippi\SlippiUser.cpp" />
     <ClCompile Include="State.cpp" />
   </ItemGroup>
@@ -491,6 +490,7 @@
     <ClInclude Include="Slippi\SlippiReplayComm.h" />
     <ClInclude Include="Slippi\SlippiSavestate.h" />
     <ClInclude Include="Slippi\SlippiSpectate.h" />
+    <ClInclude Include="Slippi\base64.hpp" />
     <ClInclude Include="Slippi\SlippiUser.h" />
     <ClInclude Include="State.h" />
   </ItemGroup>
