@@ -232,7 +232,7 @@ void SlippiSpectateServer::handleMessage(u8 *buffer, u32 length, u16 peer_id)
                 m_sockets[peer_id]->m_cursor = 0;
             }
 
-            sent_cursor = m_sockets[peer_id]->m_cursor + m_cursor_offset;
+            sent_cursor = (u32)m_sockets[peer_id]->m_cursor + (u32)m_cursor_offset;
 
             // If someone joins while at the menu, don't catch them up
             //  set their cursor to the end

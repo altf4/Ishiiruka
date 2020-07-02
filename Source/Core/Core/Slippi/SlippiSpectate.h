@@ -6,7 +6,7 @@
 #include <mutex>
 
 #include <enet/enet.h>
-#include <json.hpp>
+#include "nlohmann/json.hpp"
 using json = nlohmann::json;
 
 // Sockets in windows are unsigned
