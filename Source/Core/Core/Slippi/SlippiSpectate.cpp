@@ -329,8 +329,17 @@ void SlippiSpectateServer::SlippicommSocketThread(void)
     // This call can fail if the system is already listening on the specified port
     //  or for some period of time after it closes down. You basically have to just
     //  retry until the OS lets go of the port and we can claim it again
+    //  This typically only takes a few seconds
     ENetHost *server = enet_host_create(&server_address, MAX_CLIENTS, 2, 0, 0);
-    if (server == NULL) {
+    int tries = 0;
+    while(server == nullptr && tries < 20)
+    {
+        server = enet_host_create(&server_address, MAX_CLIENTS, 2, 0, 0);
+        tries += 1;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
+
+    if (server == nullptr) {
         WARN_LOG(SLIPPI, "Could not create spectator server");
         enet_deinitialize();
         return;
