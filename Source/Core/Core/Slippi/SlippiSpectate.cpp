@@ -78,7 +78,7 @@ void SlippiSpectateServer::writeMenuEvent(u8 *payload, u32 length)
 void SlippiSpectateServer::writeEvents(u16 peer_id)
 {
     // Send menu events
-    if(!m_in_game && (m_sockets[peer_id]->m_menu_cursor < m_menu_cursor))
+    if(!m_in_game && (m_sockets[peer_id]->m_menu_cursor != m_menu_cursor))
     {
         m_event_buffer_mutex.lock();
         ENetPacket *packet = enet_packet_create(m_menu_event.data(),

@@ -31,11 +31,10 @@ typedef int SOCKET;
 struct broadcast_msg
 {
     char	cmd[10];
-    u8		mac_addr[6];	// Wi-Fi interface MAC address
+    u8		mac_addr[6];	// Wi-Fi interface MAC address (we ignore this field)
     char	nickname[32];	// Console nickname
 };
 
-// Actual socket value is not here since that's the key of the map
 class SlippiSocket
 {
 public:
