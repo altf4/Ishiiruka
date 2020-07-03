@@ -61,12 +61,7 @@ void SlippiSpectateServer::writeMenuEvent(u8 *payload, u32 length)
       return;
   }
 
-  // Reset the sent menu flag for each peer
-  std::map<u16, std::shared_ptr<SlippiSocket>>::iterator it = m_sockets.begin();
-  for(; it != m_sockets.end(); it++)
-  {
-      it->second->m_sent_menu = false;
-  }
+  m_menu_cursor += 1;
 
   json menu_event;
   std::string str_payload((char*)payload, length);
@@ -82,12 +77,8 @@ void SlippiSpectateServer::writeMenuEvent(u8 *payload, u32 length)
 
 void SlippiSpectateServer::writeEvents(u16 peer_id)
 {
-    m_event_buffer_mutex.lock();
-    bool in_game = m_in_game;
-    m_event_buffer_mutex.unlock();
-
     // Send menu events
-    if(!in_game && !m_sockets[peer_id]->m_sent_menu)
+    if(!m_in_game && (m_sockets[peer_id]->m_menu_cursor < m_menu_cursor))
     {
         m_event_buffer_mutex.lock();
         ENetPacket *packet = enet_packet_create(m_menu_event.data(),
@@ -96,19 +87,16 @@ void SlippiSpectateServer::writeEvents(u16 peer_id)
         // Batch for sending
         enet_peer_send(m_sockets[peer_id]->m_peer, 0, packet);
         // Record for the peer that it was sent
-        m_sockets[peer_id]->m_sent_menu = true;
+        m_sockets[peer_id]->m_menu_cursor = m_menu_cursor;
         m_event_buffer_mutex.unlock();
     }
 
     // Send game events
 
-    // Get the cursor for this socket
-    u64 cursor = m_sockets[peer_id]->m_cursor;
-
     // Loop through each event that needs to be sent
     //  send all the events starting at their cursor
     m_event_buffer_mutex.lock();
-    for(u64 i = cursor; i < m_event_buffer.size(); i++)
+    for(u64 i = m_sockets[peer_id]->m_cursor; i < m_event_buffer.size(); i++)
     {
         ENetPacket *packet = enet_packet_create(m_event_buffer[i].data(),
                                                 m_event_buffer[i].size(),
@@ -152,6 +140,8 @@ void SlippiSpectateServer::endGame()
         return;
     }
 
+    m_menu_cursor = 0;
+
     m_event_buffer_mutex.lock();
     if(m_event_buffer.size() > 0)
     {
@@ -168,6 +158,9 @@ SlippiSpectateServer::SlippiSpectateServer()
     {
         return;
     }
+
+    m_in_game = false;
+    m_menu_cursor = 0;
 
     // Init some timestamps
     m_last_broadcast_time = std::chrono::system_clock::now();

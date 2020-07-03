@@ -4,6 +4,7 @@
 #include <chrono>
 #include <thread>
 #include <mutex>
+#include <atomic>
 
 #include <enet/enet.h>
 #include "nlohmann/json.hpp"
@@ -38,10 +39,10 @@ struct broadcast_msg
 class SlippiSocket
 {
 public:
-    u64 m_cursor = 0;
-    bool m_sent_menu = false;
-    bool m_shook_hands = false;
-    ENetPeer *m_peer = NULL;
+    u64 m_cursor = 0;           // Index of the last game event this client sent
+    u64 m_menu_cursor = 0;      // The latest menu event that this socket has sent
+    bool m_shook_hands = false; // Has this client shaken hands yet?
+    ENetPeer *m_peer = NULL;    // The ENet peer object for the socket TODO CLEAN UP
 };
 
 class SlippiSpectateServer
@@ -74,6 +75,7 @@ public:
     void operator=(SlippiSpectateServer const&)  = delete;
 
   private:
+    // Structure for keeping track of clients. Only access from server thread
     std::map<u16, std::shared_ptr<SlippiSocket>> m_sockets;
     bool m_stop_socket_thread;
     std::vector<std::string> m_event_buffer;
@@ -92,7 +94,11 @@ public:
     u64 m_cursor_offset = 0;
     // Keep track of what the current state of the emulator is. Are we in the middle
     //  of a game or not?
-    bool m_in_game = false;
+    std::atomic<bool> m_in_game;
+    //  How many menu events have we sent so far? (Reset between matches)
+    //    Is used to know when a client hasn't been sent a menu event
+    //    Needs to be access cross-thread so protect with atomic
+    std::atomic<u64> m_menu_cursor;
 
     // Private constructor to avoid making another instance
     SlippiSpectateServer();
