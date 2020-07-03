@@ -317,8 +317,7 @@ void SlippiSpectateServer::SlippicommSocketThread(void)
     strncpy(m_broadcast_message.nickname, nickname, sizeof(m_broadcast_message.nickname));
 
     if (enet_initialize () != 0) {
-        // TODO replace all printfs with logs
-        printf("An error occurred while initializing ENet.\n");
+        WARN_LOG(SLIPPI, "An error occurred while initializing spectator server.");
         return;
     }
 
@@ -326,15 +325,17 @@ void SlippiSpectateServer::SlippicommSocketThread(void)
     server_address.host = ENET_HOST_ANY;
     server_address.port = SLIPPI_PORT;
 
-    /* create a server */
+    // Create the spectator server
+    // This call can fail if the system is already listening on the specified port
+    //  or for some period of time after it closes down. You basically have to just
+    //  retry until the OS lets go of the port and we can claim it again
     ENetHost *server = enet_host_create(&server_address, MAX_CLIENTS, 2, 0, 0);
-
     if (server == NULL) {
-        printf("An error occurred while trying to create an ENet server host.\n");
+        WARN_LOG(SLIPPI, "Could not create spectator server");
+        enet_deinitialize();
         return;
     }
 
-    printf("Started a server...\n");
     // Main slippicomm server loop
     while(1)
     {
@@ -378,9 +379,10 @@ void SlippiSpectateServer::SlippicommSocketThread(void)
             {
                 case ENET_EVENT_TYPE_CONNECT:
                 {
-                    printf ("A new client connected from %x:%u.\n",
-                            event.peer -> address.host,
-                            event.peer -> address.port);
+
+                    INFO_LOG(SLIPPI, "A new spectator connected from %x:%u.\n",
+                        event.peer -> address.host,
+                        event.peer -> address.port);
                     std::shared_ptr<SlippiSocket> newSlippiSocket(new SlippiSocket());
                     newSlippiSocket->m_peer = event.peer;
                     m_sockets[event.peer->outgoingPeerID] = newSlippiSocket;
@@ -399,14 +401,16 @@ void SlippiSpectateServer::SlippicommSocketThread(void)
                 }
                 case ENET_EVENT_TYPE_DISCONNECT:
                 {
-                    printf ("%s disconnected.\n", (char*)event.peer -> data);
+                    INFO_LOG(SLIPPI, "A spectator disconnected from %x:%u.\n",
+                        event.peer -> address.host,
+                        event.peer -> address.port);
                     /* Reset the peer's client information. */
                     event.peer -> data = NULL;
                     break;
                 }
                 default:
                 {
-                    printf ("%s Unknown message came in.\n", (char*)event.peer -> data);
+                    INFO_LOG(SLIPPI, "Spectator sent an unknown ENet event type");
                     break;
                 }
             }
