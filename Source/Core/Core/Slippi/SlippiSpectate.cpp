@@ -92,20 +92,31 @@ void SlippiSpectateServer::writeEvents(u16 peer_id)
     }
 
     // Send game events
-
-    // Loop through each event that needs to be sent
-    //  send all the events starting at their cursor
-    m_event_buffer_mutex.lock();
-    for(u64 i = m_sockets[peer_id]->m_cursor; i < m_event_buffer.size(); i++)
+    if(m_in_game)
     {
-        ENetPacket *packet = enet_packet_create(m_event_buffer[i].data(),
-                                                m_event_buffer[i].size(),
-                                                ENET_PACKET_FLAG_RELIABLE);
-        // Batch for sending
-        enet_peer_send(m_sockets[peer_id]->m_peer, 0, packet);
-        m_sockets[peer_id]->m_cursor++;
+        // Loop through each event that needs to be sent
+        //  send all the events starting at their cursor
+        m_event_buffer_mutex.lock();
+
+        // If the client's cursor is beyond the end of the event buffer, then
+        //  it's probably left over from an old game. (Or is invalid anyway)
+        //  So reset it back to 0
+        if(m_sockets[peer_id]->m_cursor > m_event_buffer.size())
+        {
+            m_sockets[peer_id]->m_cursor = 0;
+        }
+
+        for(u64 i = m_sockets[peer_id]->m_cursor; i < m_event_buffer.size(); i++)
+        {
+            ENetPacket *packet = enet_packet_create(m_event_buffer[i].data(),
+                                                    m_event_buffer[i].size(),
+                                                    ENET_PACKET_FLAG_RELIABLE);
+            // Batch for sending
+            enet_peer_send(m_sockets[peer_id]->m_peer, 0, packet);
+            m_sockets[peer_id]->m_cursor++;
+        }
+        m_event_buffer_mutex.unlock();
     }
-    m_event_buffer_mutex.unlock();
 }
 
 // We assume, for the sake of simplicity, that all clients have finished reading
@@ -122,14 +133,6 @@ void SlippiSpectateServer::startGame()
     m_event_buffer_mutex.lock();
     m_event_buffer.clear();
     m_in_game = true;
-
-    // TODO m_sockets is probably unsafe here :/
-    std::map<u16, std::shared_ptr<SlippiSocket>>::iterator it = m_sockets.begin();
-    for(; it != m_sockets.end(); it++)
-    {
-        it->second->m_cursor = 0;
-    }
-
     m_event_buffer_mutex.unlock();
 }
 
