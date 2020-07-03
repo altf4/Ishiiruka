@@ -370,6 +370,7 @@ void SlippiSpectateServer::SlippicommSocketThread(void)
             if(!SConfig::GetInstance().m_spectator_IP.empty())
             {
                 // TODO don't send this hole punch if we're already connected to that machine
+                //    It doesn't hurt anything, but... is kind of spammy
                 //  look that in the sockets somehow
                 sendHolePunchMsg(server,
                   SConfig::GetInstance().m_spectator_IP,
