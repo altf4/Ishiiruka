@@ -388,9 +388,10 @@ void SlippiSpectateServer::SlippicommSocketThread(void)
                     INFO_LOG(SLIPPI, "A new spectator connected from %x:%u.\n",
                         event.peer -> address.host,
                         event.peer -> address.port);
+
                     std::shared_ptr<SlippiSocket> newSlippiSocket(new SlippiSocket());
                     newSlippiSocket->m_peer = event.peer;
-                    m_sockets[event.peer->outgoingPeerID] = newSlippiSocket;
+                    m_sockets[event.peer->incomingPeerID] = newSlippiSocket;
 
                     // New incoming client connection
                     //  I don't think there's any special logic that we need to do here
@@ -398,7 +399,7 @@ void SlippiSpectateServer::SlippicommSocketThread(void)
                 }
                 case ENET_EVENT_TYPE_RECEIVE:
                 {
-                    handleMessage(event.packet->data, (u32)event.packet->dataLength, event.peer->outgoingPeerID);
+                    handleMessage(event.packet->data, (u32)event.packet->dataLength, event.peer->incomingPeerID);
                     /* Clean up the packet now that we're done using it. */
                     enet_packet_destroy (event.packet);
 
@@ -409,6 +410,9 @@ void SlippiSpectateServer::SlippicommSocketThread(void)
                     INFO_LOG(SLIPPI, "A spectator disconnected from %x:%u.\n",
                         event.peer -> address.host,
                         event.peer -> address.port);
+
+                    // Delete the item in the m_sockets map
+                    m_sockets.erase(event.peer->incomingPeerID);
                     /* Reset the peer's client information. */
                     event.peer -> data = NULL;
                     break;
