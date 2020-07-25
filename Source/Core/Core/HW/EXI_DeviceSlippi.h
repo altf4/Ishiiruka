@@ -187,10 +187,7 @@ class CEXISlippi : public IEXIDevice
 
 	u32 stallFrameCount = 0;
 	bool isConnectionStalled = false;
-
-	bool isSoftFFW = false;
-	bool isHardFFW = false;
-	int32_t lastFFWFrame = INT_MIN;
+	
 	std::vector<u8> m_read_queue;
 	std::unique_ptr<Slippi::SlippiGame> m_current_game = nullptr;
   SlippiSpectateServer *m_slippiserver = nullptr;
@@ -207,6 +204,8 @@ class CEXISlippi : public IEXIDevice
 	// Frame skipping variables
 	int framesToSkip = 0;
 	bool isCurrentlySkipping = false;
+
+	std::string forcedError = "";
 
   protected:
 	void TransferByte(u8 &byte) override;
