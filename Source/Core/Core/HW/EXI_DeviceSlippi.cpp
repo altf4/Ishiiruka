@@ -49,6 +49,10 @@ extern std::unique_ptr<SlippiReplayComm> g_replayComm;
 bool isLocalConnected = false;
 #endif
 
+// Are we waiting for input on this frame?
+//  Is set to true between frames
+bool g_needInputForFrame = false;
+
 template <typename T> bool isFutureReady(std::future<T> &t)
 {
 	return t.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
@@ -2134,6 +2138,7 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
 		configureCommands(&memPtr[1], receiveCommandsLen);
 		writeToFileAsync(&memPtr[0], receiveCommandsLen + 1, "create");
 		bufLoc += receiveCommandsLen + 1;
+		g_needInputForFrame = true;
 		m_slippiserver->startGame();
 		m_slippiserver->write(&memPtr[0], receiveCommandsLen + 1);
 	}
@@ -2171,6 +2176,9 @@ void CEXISlippi::DMAWrite(u32 _uAddr, u32 _uSize)
 			break;
 		case CMD_READ_FRAME:
 			prepareFrameData(&memPtr[bufLoc + 1]);
+			break;
+		case CMD_FRAME_BOOKEND:
+			g_needInputForFrame = true;
 			break;
 		case CMD_IS_STOCK_STEAL:
 			prepareIsStockSteal(&memPtr[bufLoc + 1]);

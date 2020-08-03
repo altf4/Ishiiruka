@@ -21,6 +21,8 @@
 #define MAX_NAME_LENGTH 15
 #define CONNECT_CODE_LENGTH 8
 
+extern bool g_needInputForFrame;
+
 // Emulated Slippi device used to receive and respond to in-game messages
 class CEXISlippi : public IEXIDevice
 {
@@ -43,6 +45,7 @@ class CEXISlippi : public IEXIDevice
 		CMD_RECEIVE_GAME_INFO = 0x36,
 		CMD_RECEIVE_POST_FRAME_UPDATE = 0x38,
 		CMD_RECEIVE_GAME_END = 0x39,
+    CMD_FRAME_BOOKEND = 0x3C,
 		CMD_MENU_FRAME = 0x3E,
 
 		// Playback
@@ -187,7 +190,7 @@ class CEXISlippi : public IEXIDevice
 
 	u32 stallFrameCount = 0;
 	bool isConnectionStalled = false;
-	
+
 	std::vector<u8> m_read_queue;
 	std::unique_ptr<Slippi::SlippiGame> m_current_game = nullptr;
   SlippiSpectateServer *m_slippiserver = nullptr;
