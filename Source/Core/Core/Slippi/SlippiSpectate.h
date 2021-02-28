@@ -130,7 +130,7 @@ class SlippiSpectateServer
 	//    Is used to know when a client hasn't been sent a menu event
 	u64 m_menu_cursor;
 
-	std::thread m_socketThread;
+	std::thread m_acceptThread;
 
 	// Private constructor to avoid making another instance
 	SlippiSpectateServer();
@@ -139,6 +139,7 @@ class SlippiSpectateServer
 	// FUNCTIONS CALLED ONLY FROM SERVER THREAD
 	// Server thread. Accepts new incoming connections and goes back to sleep
 	void SlippicommSocketThread(void);
+  void SlippicommAcceptThread(void);
 	// Handle an incoming message on a socket
 	void handleMessage(u8 *buffer, u32 length, u16 peer_id);
 	// Catch up given socket to the latest events
@@ -156,6 +157,7 @@ class SlippiSpectateServer
   server m_server;
   con_list m_connections;
   std::queue<action> m_actions;
+  thread m_server_thread;
 
   mutex m_action_lock;
   mutex m_connection_lock;

@@ -195,47 +195,33 @@ SlippiSpectateServer::SlippiSpectateServer()
 	m_server.set_message_handler(bind(&SlippiSpectateServer::on_message,this,::_1,::_2));
 
 	// Start a thread to run the processing loop
-	thread t(bind(&SlippiSpectateServer::SlippicommSocketThread, this));
-
-	// Run the asio loop with the main thread
-	// listen on specified port
-	std::cout << "listen" << std::endl;
-	m_server.listen(51551, error_code);
-	if (error_code) {
-		//TODO
-		std::cout << "listen error" << std::endl;
-		return;
-	}
-	// Start the server accept loop
-	m_server.start_accept(error_code);
-	if (error_code) {
-		//TODO
-		std::cout << "accept error" << std::endl;
-		return;
-	}
-
-	// Start the ASIO io_service run loop
-	std::cout << "run" << std::endl;
-	m_server.run();
-	std::cout << "running" << std::endl;
+	m_server_thread = thread(bind(&SlippiSpectateServer::SlippicommSocketThread, this));
 
 	// t.join();
 
 	// Spawn thread for socket listener
 	m_stop_socket_thread = false;
-	// m_socketThread = std::thread(&SlippiSpectateServer::SlippicommSocketThread, this);
+	m_acceptThread = std::thread(&SlippiSpectateServer::SlippicommAcceptThread, this);
+	std::cout << "return constructor" << std::endl;
 }
 
 // CALLED FROM DOLPHIN MAIN THREAD
 SlippiSpectateServer::~SlippiSpectateServer()
 {
+	// Stop the server
+	m_server.stop();
+	m_acceptThread.join();
+	std::cout << "accept joined" << std::endl;
+
 	// The socket thread will be blocked waiting for input
 	// So to wake it up, let's connect to the socket!
 	m_stop_socket_thread = true;
-	if (m_socketThread.joinable())
+	if (m_server_thread.joinable())
 	{
-		m_socketThread.join();
+		m_server_thread.join();
 	}
+	std::cout << "fin" << std::endl;
+
 }
 
 // CALLED FROM SERVER THREAD
@@ -341,10 +327,36 @@ void SlippiSpectateServer::on_message(connection_hdl hdl, server::message_ptr ms
 		m_action_cond.notify_one();
 }
 
-void SlippiSpectateServer::SlippicommSocketThread(void)
+void SlippiSpectateServer::SlippicommAcceptThread(void)
 {
 	std::cout << "socket thread start" << std::endl;
 
+	// Run the asio loop with the main thread
+	// listen on specified port
+	std::cout << "listen" << std::endl;
+	websocketpp::lib::error_code error_code;
+	m_server.listen(51551, error_code);
+	if (error_code) {
+		//TODO
+		std::cout << "listen error" << std::endl;
+		return;
+	}
+	// Start the server accept loop
+	m_server.start_accept(error_code);
+	if (error_code) {
+		//TODO
+		std::cout << "accept error" << std::endl;
+		return;
+	}
+
+	// Start the ASIO io_service run loop
+	std::cout << "run" << std::endl;
+	m_server.run();
+	std::cout << "running" << std::endl;
+}
+
+void SlippiSpectateServer::SlippicommSocketThread(void)
+{
 	// Main slippicomm server loop
 	while (1)
 	{
