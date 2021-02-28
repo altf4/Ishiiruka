@@ -12,6 +12,13 @@
 #include <errno.h>
 #endif
 
+// Disable boost exceptions
+#define BOOST_NO_EXCEPTIONS
+#include <boost/throw_exception.hpp>
+void boost::throw_exception(std::exception const & e){
+//do nothing
+}
+
 // CALLED FROM DOLPHIN MAIN THREAD
 SlippiSpectateServer *SlippiSpectateServer::getInstance()
 {
@@ -163,17 +170,60 @@ void SlippiSpectateServer::popEvents()
 // CALLED ONCE EVER, DOLPHIN MAIN THREAD
 SlippiSpectateServer::SlippiSpectateServer()
 {
+	std::cout << "SlippiSpectateServer" << std::endl;
+
 	if (!SConfig::GetInstance().m_enableSpectator)
 	{
+		std::cout << "disabled" << std::endl;
 		return;
 	}
 
 	m_in_game = false;
 	m_menu_cursor = 0;
 
+	// Initialize Asio Transport
+	websocketpp::lib::error_code error_code;
+	m_server.init_asio(error_code);
+	if (error_code) {
+		//TODO
+		std::cout << "init error " << error_code << std::endl;
+		return;
+	}
+	// Register handler callbacks
+	m_server.set_open_handler(bind(&SlippiSpectateServer::on_open,this,::_1));
+	m_server.set_close_handler(bind(&SlippiSpectateServer::on_close,this,::_1));
+	m_server.set_message_handler(bind(&SlippiSpectateServer::on_message,this,::_1,::_2));
+
+	// Start a thread to run the processing loop
+	thread t(bind(&SlippiSpectateServer::SlippicommSocketThread, this));
+
+	// Run the asio loop with the main thread
+	// listen on specified port
+	std::cout << "listen" << std::endl;
+	m_server.listen(51551, error_code);
+	if (error_code) {
+		//TODO
+		std::cout << "listen error" << std::endl;
+		return;
+	}
+	// Start the server accept loop
+	m_server.start_accept(error_code);
+	if (error_code) {
+		//TODO
+		std::cout << "accept error" << std::endl;
+		return;
+	}
+
+	// Start the ASIO io_service run loop
+	std::cout << "run" << std::endl;
+	m_server.run();
+	std::cout << "running" << std::endl;
+
+	// t.join();
+
 	// Spawn thread for socket listener
 	m_stop_socket_thread = false;
-	m_socketThread = std::thread(&SlippiSpectateServer::SlippicommSocketThread, this);
+	// m_socketThread = std::thread(&SlippiSpectateServer::SlippicommSocketThread, this);
 }
 
 // CALLED FROM DOLPHIN MAIN THREAD
@@ -263,38 +313,37 @@ void SlippiSpectateServer::handleMessage(u8 *buffer, u32 length, u16 peer_id)
 	}
 }
 
+void SlippiSpectateServer::on_open(connection_hdl hdl) {
+		{
+				lock_guard<mutex> guard(m_action_lock);
+				//std::cout << "on_open" << std::endl;
+				m_actions.push(action(SUBSCRIBE,hdl));
+		}
+		m_action_cond.notify_one();
+}
+
+void SlippiSpectateServer::on_close(connection_hdl hdl) {
+		{
+				lock_guard<mutex> guard(m_action_lock);
+				//std::cout << "on_close" << std::endl;
+				m_actions.push(action(UNSUBSCRIBE,hdl));
+		}
+		m_action_cond.notify_one();
+}
+
+void SlippiSpectateServer::on_message(connection_hdl hdl, server::message_ptr msg) {
+		// queue message up for sending by processing thread
+		{
+				lock_guard<mutex> guard(m_action_lock);
+				//std::cout << "on_message" << std::endl;
+				m_actions.push(action(MESSAGE,hdl,msg));
+		}
+		m_action_cond.notify_one();
+}
+
 void SlippiSpectateServer::SlippicommSocketThread(void)
 {
-	if (enet_initialize() != 0)
-	{
-		WARN_LOG(SLIPPI, "An error occurred while initializing spectator server.");
-		return;
-	}
-
-	ENetAddress server_address = {0};
-	server_address.host = ENET_HOST_ANY;
-	server_address.port = SConfig::GetInstance().m_spectator_local_port;
-
-	// Create the spectator server
-	// This call can fail if the system is already listening on the specified port
-	//  or for some period of time after it closes down. You basically have to just
-	//  retry until the OS lets go of the port and we can claim it again
-	//  This typically only takes a few seconds
-	ENetHost *server = enet_host_create(&server_address, MAX_CLIENTS, 2, 0, 0);
-	int tries = 0;
-	while (server == nullptr && tries < 20)
-	{
-		server = enet_host_create(&server_address, MAX_CLIENTS, 2, 0, 0);
-		tries += 1;
-		std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-	}
-
-	if (server == nullptr)
-	{
-		WARN_LOG(SLIPPI, "Could not create spectator server");
-		enet_deinitialize();
-		return;
-	}
+	std::cout << "socket thread start" << std::endl;
 
 	// Main slippicomm server loop
 	while (1)
@@ -302,67 +351,99 @@ void SlippiSpectateServer::SlippicommSocketThread(void)
 		// If we're told to stop, then quit
 		if (m_stop_socket_thread)
 		{
-			enet_host_destroy(server);
-			enet_deinitialize();
 			return;
 		}
 
-		// Pop off any events in the queue
-		popEvents();
+		unique_lock<mutex> lock(m_action_lock);
 
-		std::map<u16, std::shared_ptr<SlippiSocket>>::iterator it = m_sockets.begin();
-		for (; it != m_sockets.end(); it++)
-		{
-			if (it->second->m_shook_hands)
-			{
-				writeEvents(it->first);
-			}
+		while(m_actions.empty()) {
+				m_action_cond.wait(lock);
 		}
 
-		ENetEvent event;
-		while (enet_host_service(server, &event, 1) > 0)
-		{
-			switch (event.type)
-			{
-			case ENET_EVENT_TYPE_CONNECT:
-			{
+		action a = m_actions.front();
+		m_actions.pop();
 
-				INFO_LOG(SLIPPI, "A new spectator connected from %x:%u.\n", event.peer->address.host,
-				         event.peer->address.port);
+		lock.unlock();
 
-				std::shared_ptr<SlippiSocket> newSlippiSocket(new SlippiSocket());
-				newSlippiSocket->m_peer = event.peer;
-				m_sockets[event.peer->incomingPeerID] = newSlippiSocket;
-				break;
-			}
-			case ENET_EVENT_TYPE_RECEIVE:
-			{
-				handleMessage(event.packet->data, (u32)event.packet->dataLength, event.peer->incomingPeerID);
-				/* Clean up the packet now that we're done using it. */
-				enet_packet_destroy(event.packet);
+		if (a.type == SUBSCRIBE) {
+				lock_guard<mutex> guard(m_connection_lock);
+				m_connections.insert(a.hdl);
+		} else if (a.type == UNSUBSCRIBE) {
+				lock_guard<mutex> guard(m_connection_lock);
+				m_connections.erase(a.hdl);
+		} else if (a.type == MESSAGE) {
+				lock_guard<mutex> guard(m_connection_lock);
 
-				break;
-			}
-			case ENET_EVENT_TYPE_DISCONNECT:
-			{
-				INFO_LOG(SLIPPI, "A spectator disconnected from %x:%u.\n", event.peer->address.host,
-				         event.peer->address.port);
-
-				// Delete the item in the m_sockets map
-				m_sockets.erase(event.peer->incomingPeerID);
-				/* Reset the peer's client information. */
-				event.peer->data = NULL;
-				break;
-			}
-			default:
-			{
-				INFO_LOG(SLIPPI, "Spectator sent an unknown ENet event type");
-				break;
-			}
-			}
+				con_list::iterator it;
+				for (it = m_connections.begin(); it != m_connections.end(); ++it) {
+						websocketpp::lib::error_code error_code;
+						m_server.send(*it, a.msg, error_code);
+						if (error_code) {
+							// TODO
+							return;
+						}
+				}
 		}
 	}
 
-	enet_host_destroy(server);
-	enet_deinitialize();
+
+
+	// 	// Pop off any events in the queue
+	// 	popEvents();
+	//
+	// 	std::map<u16, std::shared_ptr<SlippiSocket>>::iterator it = m_sockets.begin();
+	// 	for (; it != m_sockets.end(); it++)
+	// 	{
+	// 		if (it->second->m_shook_hands)
+	// 		{
+	// 			writeEvents(it->first);
+	// 		}
+	// 	}
+	//
+	// 	ENetEvent event;
+	// 	while (enet_host_service(server, &event, 1) > 0)
+	// 	{
+	// 		switch (event.type)
+	// 		{
+	// 		case ENET_EVENT_TYPE_CONNECT:
+	// 		{
+	//
+	// 			INFO_LOG(SLIPPI, "A new spectator connected from %x:%u.\n", event.peer->address.host,
+	// 			         event.peer->address.port);
+	//
+	// 			std::shared_ptr<SlippiSocket> newSlippiSocket(new SlippiSocket());
+	// 			newSlippiSocket->m_peer = event.peer;
+	// 			m_sockets[event.peer->incomingPeerID] = newSlippiSocket;
+	// 			break;
+	// 		}
+	// 		case ENET_EVENT_TYPE_RECEIVE:
+	// 		{
+	// 			handleMessage(event.packet->data, (u32)event.packet->dataLength, event.peer->incomingPeerID);
+	// 			/* Clean up the packet now that we're done using it. */
+	// 			enet_packet_destroy(event.packet);
+	//
+	// 			break;
+	// 		}
+	// 		case ENET_EVENT_TYPE_DISCONNECT:
+	// 		{
+	// 			INFO_LOG(SLIPPI, "A spectator disconnected from %x:%u.\n", event.peer->address.host,
+	// 			         event.peer->address.port);
+	//
+	// 			// Delete the item in the m_sockets map
+	// 			m_sockets.erase(event.peer->incomingPeerID);
+	// 			/* Reset the peer's client information. */
+	// 			event.peer->data = NULL;
+	// 			break;
+	// 		}
+	// 		default:
+	// 		{
+	// 			INFO_LOG(SLIPPI, "Spectator sent an unknown ENet event type");
+	// 			break;
+	// 		}
+	// 		}
+	// 	}
+	// }
+	//
+	// enet_host_destroy(server);
+	// enet_deinitialize();
 }

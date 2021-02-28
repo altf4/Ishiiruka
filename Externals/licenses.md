@@ -62,6 +62,9 @@ Dolphin includes or links code of the following third-party software projects:
    [LGPLv2+](http://www.surina.net/soundtouch/license.html)
 - [TAP-Windows](https://openvpn.net/):
    header only
+- [websocketpp](https://github.com/zaphoyd/websocketpp)
+  [3-clause BSD](https://github.com/zaphoyd/websocketpp/blob/master/COPYING)
+   header only
 - [wxWidgets](https://www.wxwidgets.org/):
    [wxWindows Library License](https://www.wxwidgets.org/about/licence/) (LGPLv2+-like)
 - [XAudio2](http://msdn.microsoft.com/en-us/library/windows/desktop/hh405049.aspx):

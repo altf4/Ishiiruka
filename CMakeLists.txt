@@ -674,6 +674,7 @@ endif()
 #     Externals/zlib/CMakeLists.txt (that is: NOT in some Src/ subdirectory)
 #
 include_directories(Externals/base64)
+include_directories(Externals/websocketpp)
 
 add_subdirectory(Externals/Bochs_disasm)
 include_directories(Externals/Bochs_disasm)
