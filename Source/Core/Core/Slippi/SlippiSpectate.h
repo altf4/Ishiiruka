@@ -7,7 +7,6 @@
 
 #include "Common/FifoQueue.h"
 #include "nlohmann/json.hpp"
-#include <enet/enet.h>
 using json = nlohmann::json;
 
 #define _WEBSOCKETPP_NO_EXCEPTIONS_
@@ -72,10 +71,10 @@ struct action {
 class SlippiSocket
 {
   public:
-	u64 m_cursor = 0;           // Index of the last game event this client sent
-	u64 m_menu_cursor = 0;      // The latest menu event that this socket has sent
-	bool m_shook_hands = false; // Has this client shaken hands yet?
-	ENetPeer *m_peer = NULL;    // The ENet peer object for the socket
+	u64 m_cursor = 0;                      // Index of the last game event this client sent
+	u64 m_menu_cursor = 0;                 // The latest menu event that this socket has sent
+	bool m_shook_hands = false;            // Has this client shaken hands yet?
+	websocketpp::connection_hdl m_peer;    // The connection handle for this peer
 };
 
 class SlippiSpectateServer
@@ -117,7 +116,7 @@ class SlippiSpectateServer
 
 	// ONLY ACCESSED FROM SERVER THREAD
 	bool m_in_game;
-	std::map<u16, std::shared_ptr<SlippiSocket>> m_sockets;
+	std::map<websocketpp::connection_hdl, std::shared_ptr<SlippiSocket>> m_sockets;
 	std::string m_event_concat = "";
 	std::vector<std::string> m_event_buffer;
 	std::string m_menu_event;
@@ -140,19 +139,17 @@ class SlippiSpectateServer
 	// Server thread. Accepts new incoming connections and goes back to sleep
 	void SlippicommSocketThread(void);
   void SlippicommAcceptThread(void);
-	// Handle an incoming message on a socket
-	void handleMessage(u8 *buffer, u32 length, u16 peer_id);
 	// Catch up given socket to the latest events
 	//  Does nothing if they're already caught up.
-	void writeEvents(u16 peer_id);
+	void writeEvents(websocketpp::connection_hdl handle);
 	// Pop events
 	void popEvents();
   void on_open(connection_hdl hdl);
   void on_close(connection_hdl hdl);
   void on_message(connection_hdl hdl, server::message_ptr msg);
+  void handleMessage(u8 *buffer, u32 length, u16 peer_id);
 
-
-  typedef std::set<websocketpp::connection_hdl,std::owner_less<websocketpp::connection_hdl> > con_list;
+  typedef std::set<websocketpp::connection_hdl, std::owner_less<websocketpp::connection_hdl> > con_list;
 
   server m_server;
   con_list m_connections;

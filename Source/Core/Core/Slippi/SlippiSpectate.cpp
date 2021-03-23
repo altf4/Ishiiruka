@@ -59,16 +59,21 @@ void SlippiSpectateServer::endGame()
 }
 
 // CALLED FROM SERVER THREAD
-void SlippiSpectateServer::writeEvents(u16 peer_id)
+void SlippiSpectateServer::writeEvents(websocketpp::connection_hdl handle)
 {
 	// Send menu events
-	if (!m_in_game && (m_sockets[peer_id]->m_menu_cursor != m_menu_cursor))
+	if (!m_in_game && (m_sockets[handle]->m_menu_cursor != m_menu_cursor))
 	{
-		ENetPacket *packet = enet_packet_create(m_menu_event.data(), m_menu_event.length(), ENET_PACKET_FLAG_RELIABLE);
 		// Batch for sending
-		enet_peer_send(m_sockets[peer_id]->m_peer, 0, packet);
+		websocketpp::lib::error_code error_code;
+		m_server.send(m_sockets[handle]->m_peer, m_menu_event, websocketpp::frame::opcode::text, error_code);
+		if (error_code) {
+			// TODO
+			std::cout << "send fail" << std::endl;
+			return;
+		}
 		// Record for the peer that it was sent
-		m_sockets[peer_id]->m_menu_cursor = m_menu_cursor;
+		m_sockets[handle]->m_menu_cursor = m_menu_cursor;
 	}
 
 	// Send game events
@@ -77,18 +82,22 @@ void SlippiSpectateServer::writeEvents(u16 peer_id)
 	// If the client's cursor is beyond the end of the event buffer, then
 	//  it's probably left over from an old game. (Or is invalid anyway)
 	//  So reset it back to 0
-	if (m_sockets[peer_id]->m_cursor > m_event_buffer.size())
+	if (m_sockets[handle]->m_cursor > m_event_buffer.size())
 	{
-		m_sockets[peer_id]->m_cursor = 0;
+		m_sockets[handle]->m_cursor = 0;
 	}
 
-	for (u64 i = m_sockets[peer_id]->m_cursor; i < m_event_buffer.size(); i++)
+	for (u64 i = m_sockets[handle]->m_cursor; i < m_event_buffer.size(); i++)
 	{
-		ENetPacket *packet =
-		    enet_packet_create(m_event_buffer[i].data(), m_event_buffer[i].size(), ENET_PACKET_FLAG_RELIABLE);
 		// Batch for sending
-		enet_peer_send(m_sockets[peer_id]->m_peer, 0, packet);
-		m_sockets[peer_id]->m_cursor++;
+		websocketpp::lib::error_code error_code;
+		m_server.send(m_sockets[handle]->m_peer, m_event_buffer[i], websocketpp::frame::opcode::text, error_code);
+		if (error_code) {
+			// TODO
+			std::cout << "send fail" << std::endl;
+			return;
+		}
+		m_sockets[handle]->m_cursor++;
 	}
 }
 
@@ -227,9 +236,31 @@ SlippiSpectateServer::~SlippiSpectateServer()
 // CALLED FROM SERVER THREAD
 void SlippiSpectateServer::handleMessage(u8 *buffer, u32 length, u16 peer_id)
 {
+
+}
+
+void SlippiSpectateServer::on_open(connection_hdl hdl) {
+		{
+				lock_guard<mutex> guard(m_action_lock);
+				//std::cout << "on_open" << std::endl;
+				m_actions.push(action(SUBSCRIBE,hdl));
+		}
+		m_action_cond.notify_one();
+}
+
+void SlippiSpectateServer::on_close(connection_hdl hdl) {
+		{
+				lock_guard<mutex> guard(m_action_lock);
+				//std::cout << "on_close" << std::endl;
+				m_actions.push(action(UNSUBSCRIBE,hdl));
+		}
+		m_action_cond.notify_one();
+}
+
+void SlippiSpectateServer::on_message(connection_hdl hdl, server::message_ptr msg) {
+
 	// Unpack the message
-	std::string message((char *)buffer, length);
-	json json_message = json::parse(message);
+	json json_message = json::parse(msg->get_payload());
 	if (!json_message.is_discarded() && (json_message.find("type") != json_message.end()))
 	{
 		// Check what type of message this is
@@ -257,27 +288,27 @@ void SlippiSpectateServer::handleMessage(u8 *buffer, u32 length, u16 peer_id)
 				// If the requested cursor is past what events we even have, then just tell them to start over
 				if (requested_cursor > m_event_buffer.size() + m_cursor_offset)
 				{
-					m_sockets[peer_id]->m_cursor = 0;
+					m_sockets[hdl]->m_cursor = 0;
 				}
 				// Requested cursor is in the middle of a live match, events that we have
 				else
 				{
-					m_sockets[peer_id]->m_cursor = requested_cursor - m_cursor_offset;
+					m_sockets[hdl]->m_cursor = requested_cursor - m_cursor_offset;
 				}
 			}
 			else
 			{
 				// The client requested a cursor that was too low. Bring them up to the present
-				m_sockets[peer_id]->m_cursor = 0;
+				m_sockets[hdl]->m_cursor = 0;
 			}
 
-			sent_cursor = (u32)m_sockets[peer_id]->m_cursor + (u32)m_cursor_offset;
+			sent_cursor = (u32)m_sockets[hdl]->m_cursor + (u32)m_cursor_offset;
 
 			// If someone joins while at the menu, don't catch them up
 			//  set their cursor to the end
 			if (!m_in_game)
 			{
-				m_sockets[peer_id]->m_cursor = m_event_buffer.size();
+				m_sockets[hdl]->m_cursor = m_event_buffer.size();
 			}
 
 			json reply;
@@ -287,44 +318,26 @@ void SlippiSpectateServer::handleMessage(u8 *buffer, u32 length, u16 peer_id)
 			reply["cursor"] = sent_cursor;
 
 			std::string packet_buffer = reply.dump();
-
-			ENetPacket *packet =
-			    enet_packet_create(packet_buffer.data(), (u32)packet_buffer.length(), ENET_PACKET_FLAG_RELIABLE);
-
 			// Batch for sending
-			enet_peer_send(m_sockets[peer_id]->m_peer, 0, packet);
+			websocketpp::lib::error_code error_code;
+			m_server.send(m_sockets[hdl]->m_peer, packet_buffer, websocketpp::frame::opcode::text, error_code);
+			if (error_code) {
+				// TODO
+				std::cout << "send fail" << std::endl;
+				return;
+			}
 			// Put the client in the right in_game state
-			m_sockets[peer_id]->m_shook_hands = true;
+			m_sockets[hdl]->m_shook_hands = true;
 		}
 	}
-}
 
-void SlippiSpectateServer::on_open(connection_hdl hdl) {
-		{
-				lock_guard<mutex> guard(m_action_lock);
-				//std::cout << "on_open" << std::endl;
-				m_actions.push(action(SUBSCRIBE,hdl));
-		}
-		m_action_cond.notify_one();
-}
-
-void SlippiSpectateServer::on_close(connection_hdl hdl) {
-		{
-				lock_guard<mutex> guard(m_action_lock);
-				//std::cout << "on_close" << std::endl;
-				m_actions.push(action(UNSUBSCRIBE,hdl));
-		}
-		m_action_cond.notify_one();
-}
-
-void SlippiSpectateServer::on_message(connection_hdl hdl, server::message_ptr msg) {
 		// queue message up for sending by processing thread
-		{
-				lock_guard<mutex> guard(m_action_lock);
-				//std::cout << "on_message" << std::endl;
-				m_actions.push(action(MESSAGE,hdl,msg));
-		}
-		m_action_cond.notify_one();
+		// {
+		// 		lock_guard<mutex> guard(m_action_lock);
+		// 		//std::cout << "on_message" << std::endl;
+		// 		m_actions.push(action(MESSAGE, hdl, msg));
+		// }
+		// m_action_cond.notify_one();
 }
 
 void SlippiSpectateServer::SlippicommAcceptThread(void)
