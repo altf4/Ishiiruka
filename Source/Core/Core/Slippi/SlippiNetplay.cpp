@@ -149,6 +149,8 @@ unsigned int SlippiNetplayClient::OnData(sf::Packet &packet)
 
 		u64 curTime = Common::Timer::GetTimeUs();
 
+		// 120 frames to let the game settle before measuring network quality
+		if (frame > 120)
 		{
 			std::lock_guard<std::recursive_mutex> lkq(packetTimestampsMutex);
 			packetTimestamps.push_back(curTime);
@@ -744,9 +746,12 @@ void SlippiNetplayClient::GetNetworkingStats(SlippiGameReporter::GameReport *rep
 	std::vector<u64> differences;
 	{
 		std::lock_guard<std::recursive_mutex> lkq(packetTimestampsMutex);
+		differences.resize(packetTimestamps.size()-1);
 		std::adjacent_difference(packetTimestamps.begin(), packetTimestamps.end(), differences.begin());
+		// For absolutely no reason that I can gather, adjacent_difference puts an exta element at the front of the result vector. Remove it
+		differences.erase(differences.begin());
 	}
-	report->jitterMean = std::accumulate(differences.begin(), differences.end(), 0LL) / differences.size();
+	report->jitterMean = std::accumulate(differences.begin(), differences.end(), 0) / differences.size();
 	report->jitterMax = (float)*std::max_element(differences.begin(), differences.end());
 	report->jitterVariance = ComputeSampleVariance(report->jitterMean, differences);
 }
