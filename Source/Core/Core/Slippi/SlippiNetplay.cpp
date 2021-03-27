@@ -28,6 +28,7 @@
 #include <fstream>
 #include <mbedtls/md5.h>
 #include <memory>
+#include <numeric>
 #include <thread>
 
 static std::mutex pad_mutex;
@@ -147,6 +148,11 @@ unsigned int SlippiNetplayClient::OnData(sf::Packet &packet)
 		// are with respect to the opponent
 
 		u64 curTime = Common::Timer::GetTimeUs();
+
+		{
+			std::lock_guard<std::recursive_mutex> lkq(packetTimestampsMutex);
+			packetTimestamps.push_back(curTime);
+		}
 
 		auto timing = lastFrameTiming;
 		if (!hasGameStarted)
@@ -536,6 +542,10 @@ void SlippiNetplayClient::StartSlippiGame()
 
 	// Reset ack timers
 	ackTimers.Clear();
+	{
+		std::lock_guard<std::recursive_mutex> lkq(packetTimestampsMutex);
+		packetTimestamps.clear();
+	}
 }
 
 void SlippiNetplayClient::SendConnectionSelected()
@@ -713,4 +723,30 @@ s32 SlippiNetplayClient::CalcTimeOffsetUs()
 	}
 
 	return sum / count;
+}
+
+// C++ seriously doesn't have a variance built-in. So we have to make our own
+float SlippiNetplayClient::ComputeSampleVariance(float mean, std::vector<u64>& numbers)
+{
+	if (numbers.size() <= 1)
+	  return 0;
+
+	auto const add_square = [mean](float sum, int i) {
+	  auto d = i - mean;
+	  return sum + d*d;
+	};
+	float total = std::accumulate(numbers.begin(), numbers.end(), 0.0, add_square);
+	return total / (numbers.size() - 1);
+}
+
+void SlippiNetplayClient::GetNetworkingStats(SlippiGameReporter::GameReport *report)
+{
+	std::vector<u64> differences;
+	{
+		std::lock_guard<std::recursive_mutex> lkq(packetTimestampsMutex);
+		std::adjacent_difference(packetTimestamps.begin(), packetTimestamps.end(), differences.begin());
+	}
+	report->jitterMean = std::accumulate(differences.begin(), differences.end(), 0LL) / differences.size();
+	report->jitterMax = (float)*std::max_element(differences.begin(), differences.end());
+	report->jitterVariance = ComputeSampleVariance(report->jitterMean, differences);
 }
