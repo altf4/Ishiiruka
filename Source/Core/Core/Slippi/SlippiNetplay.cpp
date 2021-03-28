@@ -752,7 +752,11 @@ void SlippiNetplayClient::GetNetworkingStats(SlippiGameReporter::GameReport *rep
 		// For absolutely no reason that I can gather, adjacent_difference puts an exta element at the front of the result vector. Remove it
 		differences.erase(differences.begin());
 	}
-	report->jitterMean = std::accumulate(differences.begin(), differences.end(), 0) / differences.size();
+	float sum = 0;
+	for (u64 i : differences) {
+		sum += i;
+	}
+	report->jitterMean = sum / (float)differences.size();
 	report->jitterMax = (float)*std::max_element(differences.begin(), differences.end());
 	report->jitterVariance = ComputeSampleVariance(report->jitterMean, differences);
 }
