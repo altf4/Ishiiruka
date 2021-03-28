@@ -26,6 +26,7 @@
 #include <SlippiGame.h>
 #include <algorithm>
 #include <fstream>
+#include <math.h>
 #include <mbedtls/md5.h>
 #include <memory>
 #include <numeric>
@@ -733,11 +734,11 @@ float SlippiNetplayClient::ComputeSampleVariance(float mean, std::vector<u64>& n
 	if (numbers.size() <= 1)
 	  return 0;
 
-	auto const add_square = [mean](float sum, int i) {
-	  auto d = i - mean;
-	  return sum + (float)d*(float)d;
-	};
-	float total = std::accumulate(numbers.begin(), numbers.end(), 0.0, add_square);
+	float total = 0;
+	for(u64 i : numbers) {
+		total += pow((i - mean), 2);
+	}
+
 	return total / (numbers.size() - 1);
 }
 
