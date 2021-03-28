@@ -735,7 +735,7 @@ float SlippiNetplayClient::ComputeSampleVariance(float mean, std::vector<u64>& n
 
 	auto const add_square = [mean](float sum, int i) {
 	  auto d = i - mean;
-	  return sum + d*d;
+	  return sum + (float)d*(float)d;
 	};
 	float total = std::accumulate(numbers.begin(), numbers.end(), 0.0, add_square);
 	return total / (numbers.size() - 1);
