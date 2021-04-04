@@ -66,7 +66,7 @@ void SlippiSpectateServer::writeEvents(websocketpp::connection_hdl handle)
 	{
 		// Batch for sending
 		websocketpp::lib::error_code error_code;
-		m_server.send(m_sockets[handle]->m_peer, m_menu_event, websocketpp::frame::opcode::text, error_code);
+		m_server.send(handle, m_menu_event, websocketpp::frame::opcode::text, error_code);
 		if (error_code) {
 			// TODO
 			std::cout << "send fail" << std::endl;
@@ -91,7 +91,7 @@ void SlippiSpectateServer::writeEvents(websocketpp::connection_hdl handle)
 	{
 		// Batch for sending
 		websocketpp::lib::error_code error_code;
-		m_server.send(m_sockets[handle]->m_peer, m_event_buffer[i], websocketpp::frame::opcode::text, error_code);
+		m_server.send(handle, m_event_buffer[i], websocketpp::frame::opcode::text, error_code);
 		if (error_code) {
 			// TODO
 			std::cout << "send fail" << std::endl;
@@ -209,7 +209,6 @@ SlippiSpectateServer::SlippiSpectateServer()
 	// t.join();
 
 	// Spawn thread for socket listener
-	m_stop_socket_thread = false;
 	m_acceptThread = std::thread(&SlippiSpectateServer::SlippicommAcceptThread, this);
 	std::cout << "return constructor" << std::endl;
 }
@@ -220,47 +219,26 @@ SlippiSpectateServer::~SlippiSpectateServer()
 	// Stop the server
 	m_server.stop();
 	m_acceptThread.join();
-	std::cout << "accept joined" << std::endl;
 
 	// The socket thread will be blocked waiting for input
 	// So to wake it up, let's connect to the socket!
-	m_stop_socket_thread = true;
-	if (m_server_thread.joinable())
 	{
-		m_server_thread.join();
+		lock_guard<mutex> guard(m_action_lock);
+		m_actions.push(action(SHUTDOWN));
 	}
-	std::cout << "fin" << std::endl;
-
+	m_action_cond.notify_one();
+	m_server_thread.join();
 }
 
 // CALLED FROM SERVER THREAD
-void SlippiSpectateServer::handleMessage(u8 *buffer, u32 length, u16 peer_id)
+void SlippiSpectateServer::handleMessage(std::string payload, websocketpp::connection_hdl hdl)
 {
-
-}
-
-void SlippiSpectateServer::on_open(connection_hdl hdl) {
-		{
-				lock_guard<mutex> guard(m_action_lock);
-				//std::cout << "on_open" << std::endl;
-				m_actions.push(action(SUBSCRIBE,hdl));
-		}
-		m_action_cond.notify_one();
-}
-
-void SlippiSpectateServer::on_close(connection_hdl hdl) {
-		{
-				lock_guard<mutex> guard(m_action_lock);
-				//std::cout << "on_close" << std::endl;
-				m_actions.push(action(UNSUBSCRIBE,hdl));
-		}
-		m_action_cond.notify_one();
-}
-
-void SlippiSpectateServer::on_message(connection_hdl hdl, server::message_ptr msg) {
+	std::cout << "Got message: " << payload << std::endl;
 
 	// Unpack the message
-	json json_message = json::parse(msg->get_payload());
+	json json_message = json::parse(payload, nullptr, false);
+	std::cout << "1" << std::endl;
+
 	if (!json_message.is_discarded() && (json_message.find("type") != json_message.end()))
 	{
 		// Check what type of message this is
@@ -268,6 +246,7 @@ void SlippiSpectateServer::on_message(connection_hdl hdl, server::message_ptr ms
 		{
 			return;
 		}
+		std::cout << "2" << std::endl;
 
 		if (json_message["type"] == "connect_request")
 		{
@@ -280,6 +259,8 @@ void SlippiSpectateServer::on_message(connection_hdl hdl, server::message_ptr ms
 			{
 				return;
 			}
+			std::cout << "3" << std::endl;
+
 			u32 requested_cursor = json_message["cursor"];
 			u32 sent_cursor = 0;
 			// Set the user's cursor position
@@ -301,6 +282,7 @@ void SlippiSpectateServer::on_message(connection_hdl hdl, server::message_ptr ms
 				// The client requested a cursor that was too low. Bring them up to the present
 				m_sockets[hdl]->m_cursor = 0;
 			}
+			std::cout << "4" << std::endl;
 
 			sent_cursor = (u32)m_sockets[hdl]->m_cursor + (u32)m_cursor_offset;
 
@@ -320,7 +302,7 @@ void SlippiSpectateServer::on_message(connection_hdl hdl, server::message_ptr ms
 			std::string packet_buffer = reply.dump();
 			// Batch for sending
 			websocketpp::lib::error_code error_code;
-			m_server.send(m_sockets[hdl]->m_peer, packet_buffer, websocketpp::frame::opcode::text, error_code);
+			m_server.send(hdl, packet_buffer, websocketpp::frame::opcode::text, error_code);
 			if (error_code) {
 				// TODO
 				std::cout << "send fail" << std::endl;
@@ -330,14 +312,33 @@ void SlippiSpectateServer::on_message(connection_hdl hdl, server::message_ptr ms
 			m_sockets[hdl]->m_shook_hands = true;
 		}
 	}
+}
 
-		// queue message up for sending by processing thread
-		// {
-		// 		lock_guard<mutex> guard(m_action_lock);
-		// 		//std::cout << "on_message" << std::endl;
-		// 		m_actions.push(action(MESSAGE, hdl, msg));
-		// }
-		// m_action_cond.notify_one();
+void SlippiSpectateServer::on_open(connection_hdl hdl) {
+	{
+		lock_guard<mutex> guard(m_action_lock);
+		//std::cout << "on_open" << std::endl;
+		m_actions.push(action(SUBSCRIBE, hdl));
+	}
+	m_action_cond.notify_one();
+}
+
+void SlippiSpectateServer::on_close(connection_hdl hdl) {
+	{
+		lock_guard<mutex> guard(m_action_lock);
+		//std::cout << "on_close" << std::endl;
+		m_actions.push(action(UNSUBSCRIBE, hdl));
+	}
+	m_action_cond.notify_one();
+}
+
+void SlippiSpectateServer::on_message(connection_hdl hdl, server::message_ptr msg) {
+	{
+		lock_guard<mutex> guard(m_action_lock);
+		//std::cout << "on_message" << std::endl;
+		m_actions.push(action(MESSAGE, hdl, msg));
+	}
+	m_action_cond.notify_one();
 }
 
 void SlippiSpectateServer::SlippicommAcceptThread(void)
@@ -368,50 +369,33 @@ void SlippiSpectateServer::SlippicommAcceptThread(void)
 	std::cout << "running" << std::endl;
 }
 
-void SlippiSpectateServer::SlippicommSocketThread(void)
-{
+void SlippiSpectateServer::SlippicommSocketThread(void) {
 	// Main slippicomm server loop
 	while (1)
 	{
-		// If we're told to stop, then quit
-		if (m_stop_socket_thread)
-		{
-			return;
-		}
-
 		unique_lock<mutex> lock(m_action_lock);
 
 		while(m_actions.empty()) {
 				m_action_cond.wait(lock);
 		}
 
-		action a = m_actions.front();
+		action action = m_actions.front();
 		m_actions.pop();
 
 		lock.unlock();
 
-		if (a.type == SUBSCRIBE) {
-				lock_guard<mutex> guard(m_connection_lock);
-				m_connections.insert(a.hdl);
-		} else if (a.type == UNSUBSCRIBE) {
-				lock_guard<mutex> guard(m_connection_lock);
-				m_connections.erase(a.hdl);
-		} else if (a.type == MESSAGE) {
-				lock_guard<mutex> guard(m_connection_lock);
-
-				con_list::iterator it;
-				for (it = m_connections.begin(); it != m_connections.end(); ++it) {
-						websocketpp::lib::error_code error_code;
-						m_server.send(*it, a.msg, error_code);
-						if (error_code) {
-							// TODO
-							return;
-						}
-				}
+		if (action.type == SUBSCRIBE) {
+				std::shared_ptr<SlippiSocket> newSlippiSocket(new SlippiSocket());
+				m_sockets[action.hdl] = newSlippiSocket;
+		} else if (action.type == UNSUBSCRIBE) {
+				// Delete the item in the m_sockets map
+				m_sockets.erase(action.hdl);
+		} else if (action.type == MESSAGE) {
+				handleMessage(action.msg->get_payload(), action.hdl);
+		} else if (action.type == SHUTDOWN) {
+			return;
 		}
 	}
-
-
 
 	// 	// Pop off any events in the queue
 	// 	popEvents();

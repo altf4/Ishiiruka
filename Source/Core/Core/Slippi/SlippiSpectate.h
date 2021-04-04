@@ -55,10 +55,12 @@ typedef websocketpp::server<websocketpp::config::asio> server;
 enum action_type {
     SUBSCRIBE,
     UNSUBSCRIBE,
-    MESSAGE
+    MESSAGE,
+    SHUTDOWN
 };
 
 struct action {
+    action(action_type t) : type(t) {}
     action(action_type t, websocketpp::connection_hdl h) : type(t), hdl(h) {}
     action(action_type t, websocketpp::connection_hdl h, server::message_ptr m)
       : type(t), hdl(h), msg(m) {}
@@ -74,7 +76,6 @@ class SlippiSocket
 	u64 m_cursor = 0;                      // Index of the last game event this client sent
 	u64 m_menu_cursor = 0;                 // The latest menu event that this socket has sent
 	bool m_shook_hands = false;            // Has this client shaken hands yet?
-	websocketpp::connection_hdl m_peer;    // The connection handle for this peer
 };
 
 class SlippiSpectateServer
@@ -110,13 +111,10 @@ class SlippiSpectateServer
 	//  is to avoid blocking (even if just for a brief mutex) on the main
 	//  dolphin thread.
 	Common::FifoQueue<std::string> m_event_queue;
-	// Bool gets flipped by the destrctor to tell the server thread to shut down
-	//  bools are probably atomic by default, but just for safety...
-	std::atomic<bool> m_stop_socket_thread;
 
 	// ONLY ACCESSED FROM SERVER THREAD
 	bool m_in_game;
-	std::map<websocketpp::connection_hdl, std::shared_ptr<SlippiSocket>> m_sockets;
+  std::map<websocketpp::connection_hdl, std::shared_ptr<SlippiSocket>, std::owner_less<websocketpp::connection_hdl>> m_sockets;
 	std::string m_event_concat = "";
 	std::vector<std::string> m_event_buffer;
 	std::string m_menu_event;
@@ -147,7 +145,7 @@ class SlippiSpectateServer
   void on_open(connection_hdl hdl);
   void on_close(connection_hdl hdl);
   void on_message(connection_hdl hdl, server::message_ptr msg);
-  void handleMessage(u8 *buffer, u32 length, u16 peer_id);
+  void handleMessage(std::string msg, connection_hdl hdl);
 
   typedef std::set<websocketpp::connection_hdl, std::owner_less<websocketpp::connection_hdl> > con_list;
 
@@ -157,7 +155,6 @@ class SlippiSpectateServer
   thread m_server_thread;
 
   mutex m_action_lock;
-  mutex m_connection_lock;
   condition_variable m_action_cond;
 
 };
