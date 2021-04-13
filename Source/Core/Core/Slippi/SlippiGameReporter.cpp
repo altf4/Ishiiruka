@@ -125,6 +125,7 @@ void SlippiGameReporter::ReportThreadHandler()
 			request["players"] = players;
 
 			auto requestString = request.dump();
+			std::cout << requestString << std::endl;
 
 			// Send report
 			curl_easy_setopt(m_curl, CURLOPT_POST, true);

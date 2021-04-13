@@ -2680,9 +2680,15 @@ void CEXISlippi::handleReportGame(u8 *payload)
 		report.players.push_back(p);
 	}
 	// Add network quality information to game report
-	slippi_netplay->GetNetworkingStats(&report);
+	if (slippi_netplay){
+		slippi_netplay->GetNetworkingStats(&report);
+	} else {
+		std::cout << "NULL NETPLAY?!" << std::endl;
+	}
 
+	std::cout << "Start Report" << std::endl;
 	gameReporter->StartReport(report);
+	std::cout << "Finish Report" << std::endl;
 #endif
 }
 
