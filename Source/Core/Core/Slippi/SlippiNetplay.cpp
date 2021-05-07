@@ -272,6 +272,17 @@ unsigned int SlippiNetplayClient::OnData(sf::Packet &packet, ENetPeer *peer)
 				         pad->padBuf[6], pad->padBuf[7]);
 
 				remotePadQueue[pIdx].push_front(std::move(pad));
+
+				// Gather analog stick data for later reporting
+				{
+					std::tuple<u8, u8> mainStick (pad->padBuf[2], pad->padBuf[3]);
+					std::tuple<u8, u8> cStick (pad->padBuf[4], pad->padBuf[5]);
+
+					std::lock_guard<std::mutex> lk(analogStickInputsMutex);
+					mainStickInputs[pIdx].push_back(mainStick);
+					cStickInputs[pIdx].push_back(cStick);
+				}
+
 			}
 		}
 
@@ -1162,6 +1173,75 @@ void SlippiNetplayClient::GetNetworkingStats(SlippiGameReporter::GameReport *rep
 				report->players[i].pingMean = 0;
 			}
 
+		}
+	}
+}
+
+// There's 9 regions. Dead zone (center) and 8 cardinals
+int SlippiNetplayClient::GetJoystickRegion(u8 x, u8 y)
+{
+  if (x >= 163 && y >= 163) {
+    return 1;
+  } else if (x >= 163 && y <= 91) {
+    return 2;
+  } else if (x <= 91 && y <= 91) {
+    return 3;
+  } else if (x <= 91 && y >= 163) {
+    return 4;
+  } else if (y >= 163) {
+    return 5;
+  } else if (x >= 163) {
+    return 6;
+  } else if (y <= 91) {
+    return 7;
+  } else if (x <= 91) {
+    return 8;
+  }
+  return 0;
+}
+
+void SlippiNetplayClient::GetControllerStats(SlippiGameReporter::GameReport *report)
+{
+	for (int i = 0; i < m_remotePlayerCount; i++)
+	{
+		// Don't try to write to a player slot that doesn't exist
+		if (i >= report->players.size()){
+			return;
+		}
+
+		{
+			std::lock_guard<std::mutex> lk(analogStickInputsMutex);
+			std::set<std::tuple<u8, u8>> uniqueStickInputs;
+			std::vector<int> analogTravelTimes;
+
+			// This will keep track of how long it takes for an analog stick to go from center, out somewhere, and back
+			int travelTime = 0;
+			for (std::tuple<u8, u8> input : mainStickInputs[i])
+			{
+				uniqueStickInputs.insert(input);
+
+				// Small dead zone: +- 2 from center
+				if ((125 <= std::get<0>(input) <= 129) && (125 <= std::get<1>(input) <= 129))
+				{
+					if (travelTime > 0)
+					{
+						// This will hit if we're going into center FROM outside center. And will tell us how long it took 
+						analogTravelTimes.push_back(travelTime);
+					}
+					travelTime = 0;
+				}
+				else
+				{
+					travelTime++;
+				}
+			}
+			for (std::tuple<u8, u8> input : cStickInputs[i])
+			{
+				uniqueStickInputs.insert(input);
+				int region = GetJoystickRegion(std::get<0>(input), std::get<1>(input));
+			}
+
+			report->players[i].analogStickInputCount = uniqueStickInputs.size();
 		}
 	}
 }
