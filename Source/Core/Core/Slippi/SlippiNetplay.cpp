@@ -500,6 +500,7 @@ void SlippiNetplayClient::Send(sf::Packet &packet)
 
 		ENetPacket *epac = enet_packet_create(packet.getData(), packet.getDataSize(), flags);
 		int sendResult = enet_peer_send(m_server[i], channelId, epac);
+		enet_peer_send(m_server[i], channelId, epac);
 	}
 }
 
