@@ -258,8 +258,6 @@ unsigned int SlippiNetplayClient::OnData(sf::Packet &packet, ENetPeer *peer)
 		// We can compare this to when we sent a pad for last frame to figure out how far/behind we
 		// are with respect to the opponent
 
-		u64 curTime = Common::Timer::GetTimeUs();
-
 		// 120 frames to let the game settle before measuring network quality
 		if (frame > 120)
 		{
@@ -319,8 +317,6 @@ unsigned int SlippiNetplayClient::OnData(sf::Packet &packet, ENetPeer *peer)
 				//         pad->padBuf[0], pad->padBuf[1], pad->padBuf[2], pad->padBuf[3], pad->padBuf[4],
 				//         pad->padBuf[5], pad->padBuf[6], pad->padBuf[7]);
 
-				remotePadQueue[pIdx].push_front(std::move(pad));
-
 				// Gather analog stick data for later reporting
 				{
 					std::tuple<u8, u8> mainStick (pad->padBuf[2], pad->padBuf[3]);
@@ -330,6 +326,8 @@ unsigned int SlippiNetplayClient::OnData(sf::Packet &packet, ENetPeer *peer)
 					mainStickInputs[pIdx].push_back(mainStick);
 					cStickInputs[pIdx].push_back(cStick);
 				}
+
+				remotePadQueue[pIdx].push_front(std::move(pad));
 
 			}
 		}
