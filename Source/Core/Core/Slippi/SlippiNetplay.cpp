@@ -1225,7 +1225,7 @@ void SlippiNetplayClient::GetControllerStats(SlippiGameReporter::GameReport *rep
 				{
 					if (travelTime > 0)
 					{
-						// This will hit if we're going into center FROM outside center. And will tell us how long it took 
+						// This will hit if we're going into center FROM outside center. And will tell us how long it took
 						analogTravelTimes.push_back(travelTime);
 					}
 					travelTime = 0;
@@ -1238,9 +1238,32 @@ void SlippiNetplayClient::GetControllerStats(SlippiGameReporter::GameReport *rep
 			for (std::tuple<u8, u8> input : cStickInputs[i])
 			{
 				uniqueStickInputs.insert(input);
-				int region = GetJoystickRegion(std::get<0>(input), std::get<1>(input));
 			}
 
+			// Calculate main stick burst IPM
+			int burstInput = 0;
+			for (int j = 0; j < mainStickInputs[i].size(); j++)
+			{
+				int inputsSoFar = 0;
+				int lastRegion = 0;
+				for (int k = 0; k < 60; k++)
+				{
+					if (j+k < mainStickInputs[i].size())
+					{
+						std::tuple<u8, u8> input = mainStickInputs[i][j+k];
+						int region = GetJoystickRegion(std::get<0>(input), std::get<1>(input));
+
+						if (region != lastRegion)
+						{
+							inputsSoFar++;
+						}
+						lastRegion = region;
+					}
+				}
+				burstInput = std::max(burstInput, inputsSoFar);
+			}
+
+			report->players[i].analogMaxBurstInput = burstInput;
 			report->players[i].analogStickInputCount = uniqueStickInputs.size();
 		}
 	}
