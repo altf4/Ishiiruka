@@ -308,13 +308,15 @@ struct SConfig : NonCopyable
 
 	// interface language
 	std::string m_InterfaceLanguage;
-	float m_EmulationSpeed;
+	float m_EmulationSpeed = 1.0f;
 	bool m_OCEnable;
 	float m_OCFactor;
 	// other interface settings
 	bool m_InterfaceToolbar;
 	bool m_InterfaceStatusbar;
 	bool m_InterfaceSeekbar;
+	// a transient setting for when a program hides the seekbar via the command line
+	bool m_CLIHideSeekbar = false;
 	bool m_InterfaceLogWindow;
 	bool m_InterfaceLogConfigWindow;
 	bool m_InterfaceExtendedFPSInfo;
