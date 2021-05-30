@@ -1337,28 +1337,9 @@ void SlippiNetplayClient::GetControllerStats(SlippiGameReporter::GameReport *rep
 		{
 			std::lock_guard<std::mutex> lk(analogStickInputsMutex);
 			std::set<std::tuple<u8, u8>> uniqueStickInputs;
-			std::vector<int> analogTravelTimes;
-
-			// This will keep track of how long it takes for an analog stick to go from center, out somewhere, and back
-			int travelTime = 0;
 			for (std::tuple<u8, u8> input : mainStickInputs[i])
 			{
 				uniqueStickInputs.insert(input);
-
-				// Small dead zone: +- 2 from center
-				if ((125 <= std::get<0>(input) <= 129) && (125 <= std::get<1>(input) <= 129))
-				{
-					if (travelTime > 0)
-					{
-						// This will hit if we're going into center FROM outside center. And will tell us how long it took
-						analogTravelTimes.push_back(travelTime);
-					}
-					travelTime = 0;
-				}
-				else
-				{
-					travelTime++;
-				}
 			}
 			for (std::tuple<u8, u8> input : cStickInputs[i])
 			{
