@@ -319,8 +319,8 @@ unsigned int SlippiNetplayClient::OnData(sf::Packet &packet, ENetPeer *peer)
 
 				// Gather analog stick data for later reporting
 				{
-					std::tuple<u8, u8> mainStick (pad->padBuf[2], pad->padBuf[3]);
-					std::tuple<u8, u8> cStick (pad->padBuf[4], pad->padBuf[5]);
+					std::tuple<u8, u8> mainStick (pad->padBuf[2]+128, pad->padBuf[3]+128);
+					std::tuple<u8, u8> cStick (pad->padBuf[4]+128, pad->padBuf[5]+128);
 
 					std::lock_guard<std::mutex> lk(analogStickInputsMutex);
 					mainStickInputs[pIdx].push_back(mainStick);
@@ -977,18 +977,18 @@ void SlippiNetplayClient::SendSlippiPad(std::unique_ptr<SlippiPad> pad)
 
 	if (pad)
 	{
-		// Add latest local pad report to queue
-		localPadQueue.push_front(std::move(pad));
-
 		// Gather analog stick data for later reporting
 		{
-			std::tuple<u8, u8> mainStick (pad->padBuf[2], pad->padBuf[3]);
-			std::tuple<u8, u8> cStick (pad->padBuf[4], pad->padBuf[5]);
+			std::tuple<u8, u8> mainStick (pad->padBuf[2]+128, pad->padBuf[3]+128);
+			std::tuple<u8, u8> cStick (pad->padBuf[4]+128, pad->padBuf[5]+128);
 
 			std::lock_guard<std::mutex> lk(analogStickInputsMutex);
-			mainStickInputs[playerIdx].push_back(mainStick);
-			cStickInputs[playerIdx].push_back(cStick);
+			mainStickInputs[m_remotePlayerCount].push_back(mainStick);
+			cStickInputs[m_remotePlayerCount].push_back(cStick);
 		}
+
+		// Add latest local pad report to queue
+		localPadQueue.push_front(std::move(pad));
 	}
 
 	// Remove pad reports that have been received and acked
@@ -1327,7 +1327,7 @@ int SlippiNetplayClient::GetJoystickRegion(u8 x, u8 y)
 
 void SlippiNetplayClient::GetControllerStats(SlippiGameReporter::GameReport *report)
 {
-	for (int i = 0; i < m_remotePlayerCount; i++)
+	for (int i = 0; i < m_remotePlayerCount+1; i++)
 	{
 		// Don't try to write to a player slot that doesn't exist
 		if (i >= report->players.size()){
@@ -1377,7 +1377,6 @@ void SlippiNetplayClient::GetControllerStats(SlippiGameReporter::GameReport *rep
 					{
 						std::tuple<u8, u8> input = mainStickInputs[i][j+k];
 						int region = GetJoystickRegion(std::get<0>(input), std::get<1>(input));
-
 						if (region != lastRegion)
 						{
 							inputsSoFar++;

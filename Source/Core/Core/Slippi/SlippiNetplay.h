@@ -210,9 +210,13 @@ class SlippiNetplayClient
 	std::mutex packetTimestampsMutex;
 	std::vector<u64> pings[SLIPPI_REMOTE_PLAYER_MAX];
 	std::mutex pingsMutex;
-	InputPairs mainStickInputs[SLIPPI_REMOTE_PLAYER_MAX];
-	InputPairs cStickInputs[SLIPPI_REMOTE_PLAYER_MAX];
+	// For these two vectors, the order goes:
+	//	0-N -> opponent's inputs, in port order.
+	//	N+1 -> our inputs
+	InputPairs mainStickInputs[SLIPPI_REMOTE_PLAYER_MAX+1];
+	InputPairs cStickInputs[SLIPPI_REMOTE_PLAYER_MAX+1];
 	std::mutex analogStickInputsMutex;
+
 	int32_t lastFrameAcked[SLIPPI_REMOTE_PLAYER_MAX];
 	FrameOffsetData frameOffsetData[SLIPPI_REMOTE_PLAYER_MAX];
 	FrameTiming lastFrameTiming[SLIPPI_REMOTE_PLAYER_MAX];
