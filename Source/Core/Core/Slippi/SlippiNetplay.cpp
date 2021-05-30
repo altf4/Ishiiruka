@@ -979,6 +979,16 @@ void SlippiNetplayClient::SendSlippiPad(std::unique_ptr<SlippiPad> pad)
 	{
 		// Add latest local pad report to queue
 		localPadQueue.push_front(std::move(pad));
+
+		// Gather analog stick data for later reporting
+		{
+			std::tuple<u8, u8> mainStick (pad->padBuf[2], pad->padBuf[3]);
+			std::tuple<u8, u8> cStick (pad->padBuf[4], pad->padBuf[5]);
+
+			std::lock_guard<std::mutex> lk(analogStickInputsMutex);
+			mainStickInputs[playerIdx].push_back(mainStick);
+			cStickInputs[playerIdx].push_back(cStick);
+		}
 	}
 
 	// Remove pad reports that have been received and acked
