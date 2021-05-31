@@ -1369,7 +1369,7 @@ void SlippiNetplayClient::GetControllerStats(SlippiGameReporter::GameReport *rep
 			}
 
 			report->players[i].analogMaxBurstInput = burstInput;
-			report->players[i].analogStickInputCount = uniqueStickInputs.size();
+			report->players[i].analogStickInputCount = (u32)uniqueStickInputs.size();
 		}
 	}
 }
